@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains Python implementations of algorithms for feature selection and time-series classification. Developed primarily in Python and utilizing libraries such as NumPy, scikit-learn, and sktime, the core functionalities are encapsulated within the following functions:
+This repository contains Python implementations of Sequential Feature Detachment (SFD) for feature selection and DEtach-ROCKET for time-series classification. Developed primarily in Python and utilizing libraries such as NumPy, scikit-learn, and sktime, the core functionalities are encapsulated within the following functions:
 
 - `train_full_rocket_model`: For applying the ROCKET transformation on time series data and training a ridge classifier.
   
