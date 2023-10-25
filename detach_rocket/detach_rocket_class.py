@@ -1,3 +1,13 @@
+from sklearn.linear_model import (RidgeClassifierCV ,RidgeClassifier)
+from sklearn.preprocessing import StandardScaler
+from sktime.transformations.panel.rocket import (
+    Rocket,
+    MiniRocket,
+    MultiRocket
+)
+from sklearn.model_selection import train_test_split
+import numpy as np
+
 class DetachRocket:
 
     def __init__(
