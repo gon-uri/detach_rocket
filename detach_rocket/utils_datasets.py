@@ -11,6 +11,7 @@ import pickle
 from scipy.io.arff import loadarff
 from sklearn.utils import Bunch
 from urllib.request import urlretrieve
+from pyts.datasets import ucr_dataset_list
 import zipfile
 
 
@@ -44,32 +45,32 @@ def _correct_ucr_name_description(dataset):
         return dataset
 
 
-def ucr_dataset_list():
-    """List of available UCR datasets.
+# def ucr_dataset_list():
+#     """List of available UCR datasets.
 
-    Returns
-    -------
-    datasets : list
-        List of available datasets from the UCR Time Series
-        Classification Archive.
+#     Returns
+#     -------
+#     datasets : list
+#         List of available datasets from the UCR Time Series
+#         Classification Archive.
 
-    References
-    ----------
-    .. [1] `List of datasets on the UEA & UCR archive
-           <http://www.timeseriesclassification.com/dataset.php>`_
+#     References
+#     ----------
+#     .. [1] `List of datasets on the UEA & UCR archive
+#            <http://www.timeseriesclassification.com/dataset.php>`_
 
-    Examples
-    --------
-    >>> from pyts.datasets import ucr_dataset_list
-    >>> ucr_dataset_list()[:3]
-    ['ACSF1', 'Adiac', 'AllGestureWiimoteX']
+#     Examples
+#     --------
+#     >>> from pyts.datasets import ucr_dataset_list
+#     >>> ucr_dataset_list()[:3]
+#     ['ACSF1', 'Adiac', 'AllGestureWiimoteX']
 
-    """
-    module_path = os.path.dirname(__file__)
-    finfo = os.path.join(module_path, 'info', 'ucr.pickle')
-    dictionary = pickle.load(open(finfo, 'rb'))
-    datasets = sorted(dictionary.keys())
-    return datasets
+#     """
+#     module_path = os.path.dirname(__file__)
+#     finfo = os.path.join(module_path, 'info', 'ucr.pickle')
+#     dictionary = pickle.load(open(finfo, 'rb'))
+#     datasets = sorted(dictionary.keys())
+#     return datasets
 
 
 def ucr_dataset_info(dataset=None):
