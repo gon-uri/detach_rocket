@@ -9,7 +9,7 @@ setuptools.setup(
     author="Gonzalo Uribarri & Federico Barone",
     description="Sequential Feature Detachment for Random Convolutional Kernel models.",
     long_description_content_type="text/markdown",
-    url="https://github.com/gon-uri/bird_detection",
+    url="https://github.com/gon-uri/detach_rocket",
     packages=setuptools.find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
