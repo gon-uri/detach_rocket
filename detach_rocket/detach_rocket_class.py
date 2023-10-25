@@ -1,6 +1,6 @@
 """Detach-RCOKET end-to-end model class."""
 
-from detach_rocket.linear_model import (feature_detachment, select_optimal_model, retrain_optimal_model)
+from detach_rocket.utils import (feature_detachment, select_optimal_model, retrain_optimal_model)
 
 from sklearn.linear_model import (RidgeClassifierCV ,RidgeClassifier)
 from sklearn.preprocessing import StandardScaler
