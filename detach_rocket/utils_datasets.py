@@ -1,7 +1,7 @@
 """
 Utility functions for the UCR  time series classification archive.
 """
-# Code copied (and modified) from pyts library:
+# Code copied (and modified) from pyts library code:
 # Author: Johann Faouzi <johann.faouzi@gmail.com>
 # License: BSD-3-Clause
 
