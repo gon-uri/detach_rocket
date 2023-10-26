@@ -85,8 +85,13 @@ class DetachRocket:
         self._full_classifier.fit(self._feature_matrix, y)
         self._full_model_alpha = self._full_classifier.alpha_
 
+        print('TRAINING RESULTS FUll ROCKET:: -------')
+        print('Optimal Alpha FUll ROCKET: {:.2f}'.format(self._full_model_alpha))
+        print('Train Accuraccy FUll ROCKET: {:.2f}%'.format(100*self._full_classifier.best_score_))
+        print('-------------------------')
+
         # Train-Validation split
-        X, X_val, y, y_val = train_test_split(self._feature_matrix,
+        X_train, X_val, y_train, y_val = train_test_split(self._feature_matrix,
                                                             y,
                                                             test_size=self.val_ratio,
                                                             random_state=42,
@@ -94,13 +99,13 @@ class DetachRocket:
 
         # Train model for selected features
         sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
-        sfd_classifier.fit(X, y)
+        sfd_classifier.fit(X_train, y_train)
 
         # Feature Detachment
         if verbose == True:
             print('Applying Sequential Feature Detachment')
 
-        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X, X_val, y, y_val, verbose=False)
+        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=False)
 
         # Training Optimal Model
         if verbose == True:
@@ -164,5 +169,4 @@ class DetachRocket:
         transformed_X = self._scaler.fit_transform(transformed_X)
         masked_transformed_X = transformed_X[:,self._feature_mask]
 
-
-        return self._classifier.score(masked_transformed_X, y)
+        return self._classifier.score(masked_transformed_X, y), self._full_classifier.score(transformed_X, y)
