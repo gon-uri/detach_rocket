@@ -87,7 +87,7 @@ class DetachRocket:
 
         print('TRAINING RESULTS FUll ROCKET:')
         print('Optimal Alpha FUll ROCKET: {:.2f}'.format(self._full_model_alpha))
-        print('Train Accuraccy FUll ROCKET: {:.2f}%'.format(100*self._full_classifier.score(self._feature_matrix, y))
+        print('Train Accuraccy FUll ROCKET: {:.2f}%'.format(100*self._full_classifier.score(self._feature_matrix, y)))
         print('-------------------------')
 
         # Train-Validation split
