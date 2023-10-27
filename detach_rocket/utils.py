@@ -2,6 +2,7 @@ from sklearn.linear_model import (RidgeClassifierCV,RidgeClassifier)
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def feature_detachment(classifier,
                         X_train: np.ndarray,
                         X_test: np.ndarray,
@@ -224,9 +225,9 @@ def retrain_optimal_model(feature_mask,
     optimal_classifier.fit(masked_X_train, y_train)
     optimal_acc_train = optimal_classifier.score(masked_X_train, y_train)
 
-    print('TRAINING RESULTS: -------')
-    print('Optimal Alpha: {:.2f}'.format(model_alpha))
-    print('Train Accuraccy: {:.2f}%'.format(100*optimal_acc_train))
+    print('TRAINING RESULTS Detach-ROCKET:')
+    print('Optimal Alpha Detach-ROCKET: {:.2f}'.format(model_alpha))
+    print('Train Accuraccy Detach-ROCKET: {:.2f}%'.format(100*optimal_acc_train))
     print('-------------------------')
 
     return optimal_classifier, optimal_acc_train
