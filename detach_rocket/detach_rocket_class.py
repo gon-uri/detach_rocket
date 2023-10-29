@@ -153,6 +153,7 @@ class DetachRocket:
 
         # Transform time series to feature matrix
         transformed_X = np.asarray(self._full_transformer.transform(X))
+        transformed_X = self._scaler.fit_transform(transformed_X)
         masked_transformed_X = transformed_X[:,self._feature_mask]
 
         y_pred = self._classifier.predict(masked_transformed_X)
