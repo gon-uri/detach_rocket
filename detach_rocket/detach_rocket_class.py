@@ -39,7 +39,7 @@ class DetachRocket:
         self._max_percentage = None
         self._is_fitted = False
         self._optimal_computed = False
-        
+
 
         self.num_kernels = num_kernels
         self.trade_off = trade_off
@@ -168,5 +168,6 @@ class DetachRocket:
         transformed_X = np.asarray(self._full_transformer.transform(X))
         transformed_X = self._scaler.fit_transform(transformed_X)
         masked_transformed_X = transformed_X[:,self._feature_mask]
+
 
         return self._classifier.score(masked_transformed_X, y), self._full_classifier.score(transformed_X, y)
