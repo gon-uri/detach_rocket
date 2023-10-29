@@ -61,9 +61,9 @@ def feature_detachment(classifier,
     percentage_vector_unif = np.power(keep_percentage, powers_vector)
 
     num_feat_per_step = np.unique((percentage_vector_unif*total_feats).astype(int))
+    num_feat_per_step = num_feat_per_step[::-1]
     num_feat_per_step = num_feat_per_step[num_feat_per_step>0]
     percentage_vector = num_feat_per_step/total_feats
-
 
     # Define lists and matrices
     score_list_train = []
