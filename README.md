@@ -41,7 +41,7 @@ This project is licensed under the MIT License.
 
 ## Citation
 
-The explanation of the model and methods can be found in [this publication].(https://arxiv.org/abs/2309.14518).
+The explanation of the model and methods can be found in [this publication](https://arxiv.org/abs/2309.14518).
 If you find these methods useful in your research, please cite the article:
 
 *APA*
