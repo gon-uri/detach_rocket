@@ -200,7 +200,6 @@ class DetachMatrix:
         self._is_fitted = False
         self._optimal_computed = False
 
-        self.num_kernels = num_kernels
         self.trade_off = trade_off
         self.val_ratio = val_ratio
         self.recompute_alpha = recompute_alpha
