@@ -17,7 +17,8 @@ This repository contains Python implementations of Sequential Feature Detachment
 To install the required dependencies, execute:
 
 ```bash
-pip install numpy scikit-learn sktime
+pip install numpy scikit-learn sktime pyts
+pip install git+https://github.com/gon-uri/detach_rocket --quiet
 ```
 
 ## Function Descriptions
