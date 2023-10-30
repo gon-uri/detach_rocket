@@ -1,5 +1,5 @@
 <img src="https://github.com/gon-uri/detach_rocket/logo/logo.png" align="right"
-     alt="repo logo" width="1024" height="1024">
+     alt="repo logo" width="300" height="300">
      
 # README
 
