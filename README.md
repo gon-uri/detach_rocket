@@ -6,7 +6,7 @@ This repository contains Python implementations of Sequential Feature Detachment
 
 - `DetachRocket`: Detach-ROCKET model class.
   
-- `SFD`: Class for applying Sequential Feature Detachment (SFD) to any type of data.
+- `SFD`: Class for applying Sequential Feature Detachment (SFD) to any arbitrary data.
 
 ## Installation
 
@@ -33,7 +33,7 @@ y_pred = DetachRocketModel.predict(X_test)
 
 ## Notebook Examples
 
-Detailed usage examples can be found in the accompanying Jupyter Notebooks at the [examples folder](/examples).
+Detailed usage examples can be found in the included Jupyter notebooks in the [examples folder](/examples).
 
 ## License
 
@@ -41,7 +41,8 @@ This project is licensed under the MIT License.
 
 ## Citation
 
-If you find these methods useful in your research, please cite this article.
+The explanation of the model and methods can be found in [this publication].(https://arxiv.org/abs/2309.14518).
+If you find these methods useful in your research, please cite the article.
 
 APA
 ```
