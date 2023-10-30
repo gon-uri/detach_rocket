@@ -1,4 +1,4 @@
-<img src="https://github.com/gon-uri/detach_rocket/logo/logo.png" align="right"
+<img src="logo/logo.png" align="right"
      alt="repo logo" width="300" height="300">
      
 # README
