@@ -8,6 +8,8 @@ This repository contains Python implementations of Sequential Feature Detachment
   
 - `SFD`: Class for applying Sequential Feature Detachment (SFD) to any arbitrary data.
 
+The detailed explanation of the model and methods can be found in [this publication](https://arxiv.org/abs/2309.14518).
+
 ## Installation
 
 To install the required dependencies, execute:
@@ -41,7 +43,6 @@ This project is licensed under the MIT License.
 
 ## Citation
 
-The explanation of the model and methods can be found in [this publication](https://arxiv.org/abs/2309.14518).
 If you find these methods useful in your research, please cite the article:
 
 *APA*
