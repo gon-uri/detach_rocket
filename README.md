@@ -6,9 +6,9 @@ Official repository of [Detach-ROCKET: Sequential feature selection for time ser
 
 This repository contains Python implementations of Sequential Feature Detachment (SFD) for feature selection and DEtach-ROCKET for time-series classification. Developed primarily in Python and utilizing NumPy, scikit-learn, and sktime libraries, the core functionalities are encapsulated within the following classes:
 
-- `DetachRocket`: Detach-ROCKET model class.
+- `DetachRocket`: Detach-ROCKET model class. Optimal model which is obtained by pruning an initial ROCKET, MiniRocket or MultiROCKET model.
   
-- `SFD`: Class for applying Sequential Feature Detachment (SFD) to any arbitrary data.
+- `SFD`: Class for applying Sequential Feature Detachment (SFD) to arbitrary data.
 
 For a detailed explanation of the model and methods please refer to the [article](https://arxiv.org/abs/2309.14518).
 
