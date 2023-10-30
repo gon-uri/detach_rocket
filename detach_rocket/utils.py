@@ -229,9 +229,9 @@ def retrain_optimal_model(feature_mask,
     optimal_classifier.fit(masked_X_train, y_train)
     optimal_acc_train = optimal_classifier.score(masked_X_train, y_train)
 
-    print('TRAINING RESULTS Detach-ROCKET:')
-    print('Optimal Alpha Detach-ROCKET: {:.2f}'.format(model_alpha))
-    print('Train Accuraccy Detach-ROCKET: {:.2f}%'.format(100*optimal_acc_train))
+    print('TRAINING RESULTS Detach Model:')
+    print('Optimal Alpha Detach Model: {:.2f}'.format(model_alpha))
+    print('Train Accuraccy Detach Model: {:.2f}%'.format(100*optimal_acc_train))
     print('-------------------------')
 
     return optimal_classifier, optimal_acc_train
