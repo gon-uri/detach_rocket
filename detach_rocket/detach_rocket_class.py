@@ -1,4 +1,6 @@
-"""Detach-RCOKET end-to-end model class."""
+"""
+Detach-RCOKET end-to-end model class.
+"""
 
 from detach_rocket.utils import (feature_detachment, select_optimal_model, retrain_optimal_model)
 
