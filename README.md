@@ -1,5 +1,7 @@
 # README
 
+Official repository of [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels.](https://arxiv.org/abs/2309.14518)
+
 ## Overview
 
 This repository contains Python implementations of Sequential Feature Detachment (SFD) for feature selection and DEtach-ROCKET for time-series classification. Developed primarily in Python and utilizing NumPy, scikit-learn, and sktime libraries, the core functionalities are encapsulated within the following classes:
@@ -8,7 +10,7 @@ This repository contains Python implementations of Sequential Feature Detachment
   
 - `SFD`: Class for applying Sequential Feature Detachment (SFD) to any arbitrary data.
 
-The detailed explanation of the model and methods can be found in [this publication](https://arxiv.org/abs/2309.14518).
+For a detailed explanation of the model and methods please refer to the [article](https://arxiv.org/abs/2309.14518).
 
 ## Installation
 
