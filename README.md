@@ -22,7 +22,7 @@ pip install git+https://github.com/gon-uri/detach_rocket --quiet
 ```
 
 ## Usage
-
+Model usage is identical to scikit-leanr 
 
 ```python
 # Instantiate model object
