@@ -1,3 +1,7 @@
+"""
+Utility functions for SFD feature detachment and Detach-ROCKET model.
+"""
+
 from sklearn.linear_model import (RidgeClassifierCV,RidgeClassifier)
 import numpy as np
 import matplotlib.pyplot as plt
