@@ -1,5 +1,5 @@
-<img src="https://github.com/gon-uri/bird_detection/blob/main/img/LogoLSD.png" align="right"
-     alt="LSD logo" width="370" height="100">
+<img src="https://github.com/gon-uri/detach_rocket/logo/logo.png" align="right"
+     alt="repo logo" width="300" height="300">
      
 # README
 
