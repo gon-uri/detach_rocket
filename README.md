@@ -64,5 +64,5 @@ Uribarri, G., Barone, F., Ansuini, A., & Fransén, E. (2023). Detach-ROCKET: Seq
 }
 ```
 
-<img src="logo/logo.png" align="left"
+<img src="logo/logo.png" align="centered"
      alt="repo logo" width="80" height="80">
