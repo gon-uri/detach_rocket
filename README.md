@@ -10,7 +10,7 @@ This repository contains Python implementations of Sequential Feature Detachment
 
 - `DetachRocket`: Detach-ROCKET model class. It is constructed by pruning an initial ROCKET, MiniRocket or MultiROCKET model using SFD and selecting the optimal size.
   
-- `SFD`: Class for applying Sequential Feature Detachment to any dataset matrix composed of (instances x features).
+- `DetachMatrix`: Class for applying Sequential Feature Detachment to any dataset matrix composed of (instances x features).
 
 For a detailed explanation of the model and methods please refer to the [article](https://arxiv.org/abs/2309.14518).
 
