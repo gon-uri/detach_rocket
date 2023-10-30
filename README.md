@@ -23,7 +23,7 @@ pip install git+https://github.com/gon-uri/detach_rocket --quiet
 
 ## Notebook Examples
 
-Detailed usage examples can be found in the accompanying Jupyter Notebooks [Examples](detach_rocket/examples)
+Detailed usage examples can be found in the accompanying Jupyter Notebooks [Examples](/examples)
 
 ## License
 
