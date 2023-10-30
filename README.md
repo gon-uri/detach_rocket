@@ -1,5 +1,5 @@
 <img src="logo/logo.png" align="right"
-     alt="repo logo" width="200" height="200">
+     alt="repo logo" width="180" height="180">
      
 # README
 
