@@ -21,7 +21,7 @@ pip install git+https://github.com/gon-uri/detach_rocket --quiet
 
 
 ```python
-# Create model object
+# Instantiate model object
 DetachRocketModel = DetachRocket('rocket', num_kernels=10000)
 
 # Trian Model
