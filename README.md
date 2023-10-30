@@ -43,7 +43,17 @@ This project is licensed under the MIT License.
 
 If you find these methods useful in your research, please cite this article.
 
+APA
 ```
 Uribarri, G., Barone, F., Ansuini, A., & Fransén, E. (2023). Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels. arXiv preprint arXiv:2309.14518.
 ```
 
+BIBTEX
+```
+@article{uribarri2023detach,
+  title={Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels},
+  author={Uribarri, Gonzalo and Barone, Federico and Ansuini, Alessio and Frans{\'e}n, Erik},
+  journal={arXiv preprint arXiv:2309.14518},
+  year={2023}
+}
+```
