@@ -20,10 +20,20 @@ pip install git+https://github.com/gon-uri/detach_rocket --quiet
 ## Usage
 
 
+```python
+# Create model object
+DetachRocketModel = DetachRocket(model_type, num_kernels=num_kernels)
+
+# Trian Model
+DetachRocketModel.fit(X_train,y_train)
+
+# Predict Test Set
+y_pred = DetachRocketModel.predict(X_test)
+```
 
 ## Notebook Examples
 
-Detailed usage examples can be found in the accompanying Jupyter Notebooks [Examples](/examples)
+Detailed usage examples can be found in the accompanying Jupyter Notebooks at the [examples folder](/examples).
 
 ## License
 
