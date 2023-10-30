@@ -42,14 +42,14 @@ This project is licensed under the MIT License.
 ## Citation
 
 The explanation of the model and methods can be found in [this publication].(https://arxiv.org/abs/2309.14518).
-If you find these methods useful in your research, please cite the article.
+If you find these methods useful in your research, please cite the article:
 
-APA
+*APA*
 ```
 Uribarri, G., Barone, F., Ansuini, A., & Fransén, E. (2023). Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels. arXiv preprint arXiv:2309.14518.
 ```
 
-BIBTEX
+*BIBTEX*
 ```
 @article{uribarri2023detach,
   title={Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels},
