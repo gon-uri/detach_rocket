@@ -1,9 +1,6 @@
-
-
 <img src="logo/logo.png" align="right"
-     alt="repo logo" width="100" height="100">
-<img src="logo/logo.png" align="left"
-     alt="repo logo" width="100" height="100">
+     alt="repo logo" width="180" height="180">
+
 # README
 Official repository of [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels.](https://arxiv.org/abs/2309.14518)
 
@@ -66,3 +63,6 @@ Uribarri, G., Barone, F., Ansuini, A., & Fransén, E. (2023). Detach-ROCKET: Seq
   year={2023}
 }
 ```
+
+<img src="logo/logo.png" align="left"
+     alt="repo logo" width="80" height="80">
