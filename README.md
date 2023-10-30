@@ -41,4 +41,9 @@ This project is licensed under the MIT License.
 
 ## Citation
 
-If you find these methods useful in your research, consider citing this repository.
+If you find these methods useful in your research, please cite this article.
+
+<a id="1">[1]</a> 
+Dijkstra, E. W. (1968). 
+Go to statement considered harmful. 
+Communications of the ACM, 11(3), 147-148.
