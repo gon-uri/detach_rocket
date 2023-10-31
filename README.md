@@ -2,7 +2,7 @@
      alt="repo logo" width="180" height="180">
 
 # README
-Official repository of [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels.](https://arxiv.org/abs/2309.14518)
+Official repository for [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels.](https://arxiv.org/abs/2309.14518)
 
 ## Overview
 
