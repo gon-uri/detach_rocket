@@ -1,4 +1,4 @@
-<img src="logo/logo.png" align="right"
+<img src="logo/detach_logo.png" align="right"
      alt="repo logo" width="180" height="180">
 
 # README
