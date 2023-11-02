@@ -78,7 +78,6 @@ class DetachRocket:
             print('Fitting Full Model')
 
         # scale feature matrix
-        scaler = StandardScaler(with_mean=True)
         self._feature_matrix = self._scaler.fit_transform(self._feature_matrix)
 
         # TODO: if not enough samples for train/val split
