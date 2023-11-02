@@ -155,7 +155,7 @@ class DetachRocket:
 
         # Transform time series to feature matrix
         transformed_X = np.asarray(self._full_transformer.transform(X))
-        transformed_X = self._scaler.fit_transform(transformed_X)
+        transformed_X = self._scaler.transform(transformed_X)
         masked_transformed_X = transformed_X[:,self._feature_mask]
 
         y_pred = self._classifier.predict(masked_transformed_X)
@@ -168,7 +168,7 @@ class DetachRocket:
 
         # Transform time series to feature matrix
         transformed_X = np.asarray(self._full_transformer.transform(X))
-        transformed_X = self._scaler.fit_transform(transformed_X)
+        transformed_X = self._scaler.transform(transformed_X)
         masked_transformed_X = transformed_X[:,self._feature_mask]
 
         return self._classifier.score(masked_transformed_X, y), self._full_classifier.score(transformed_X, y)
@@ -296,7 +296,7 @@ class DetachMatrix:
         assert self._is_fitted == True, "Model not fitted. Call fit method first."
 
         # Transform time series to feature matrix
-        scaled_X = self._scaler.fit_transform(X)
+        scaled_X = self._scaler.transform(X)
         masked_scaled_X = scaled_X[:,self._feature_mask]
 
         y_pred = self._classifier.predict(masked_scaled_X)
@@ -308,7 +308,7 @@ class DetachMatrix:
         assert self._is_fitted == True, "Model not fitted. Call fit method first."
 
         # Transform time series to feature matrix
-        scaled_X = self._scaler.fit_transform(X)
+        scaled_X = self._scaler.transform(X)
         masked_scaled_X = scaled_X[:,self._feature_mask]
 
 
