@@ -37,9 +37,9 @@ DetachRocketModel.fit(X_train,y_train)
 y_pred = DetachRocketModel.predict(X_test)
 ```
 
-For univariate time series, the shape of X_train should be (n_instances, n_timepoints).
+For univariate time series, the shape of `X_train` should be (n_instances, n_timepoints).
 
-For multivariate time series, the shape of X_train should be (n_instances, n_variables, n_timepoints).
+For multivariate time series, the shape of `X_train` should be (n_instances, n_variables, n_timepoints).
 
 ## Notebook Examples
 
