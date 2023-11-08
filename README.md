@@ -27,7 +27,7 @@ pip install git+https://github.com/gon-uri/detach_rocket --quiet
 The model usage is the same as in the scikit-learn library. 
 
 ```python
-# Instantiate model object
+# Instantiate Model
 DetachRocketModel = DetachRocket('rocket', num_kernels=10000)
 
 # Trian Model
