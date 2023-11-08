@@ -45,6 +45,11 @@ For multivariate time series, the shape of `X_train` should be (n_instances, n_v
 
 Detailed usage examples can be found in the included Jupyter notebooks in the [examples folder](/examples).
 
+## Upcoming Features
+
+- [ ] Built-in support for multilabel classification.
+- [ ] Pytorch implementation of ROCKET, MiniRocket or MultiROCKET.
+
 ## License
 
 This project is licensed under the BSD-3-Clause License.
