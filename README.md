@@ -10,7 +10,7 @@ This repository contains Python implementations of Sequential Feature Detachment
 
 - `DetachRocket`: Detach-ROCKET model class. It is constructed by pruning an initial ROCKET, MiniRocket or MultiROCKET model using SFD and selecting the optimal size.
   
-- `DetachMatrix`: Class for applying Sequential Feature Detachment to any dataset matrix structured as (instances x features).
+- `DetachMatrix`: Class for applying Sequential Feature Detachment to any dataset matrix structured as (n_instances, n_features).
 
 For a detailed explanation of the model and methods please refer to the [article](https://arxiv.org/abs/2309.14518).
 
@@ -36,6 +36,9 @@ DetachRocketModel.fit(X_train,y_train)
 # Predict Test Set
 y_pred = DetachRocketModel.predict(X_test)
 ```
+
+For univariate time series X_train should have shape (n_instances, n_timepoints) or (n_instances, 1, n_timepoints).
+For multivariate time series X_train should have shape (n_instances, n_variables, n_timepoints).
 
 ## Notebook Examples
 
