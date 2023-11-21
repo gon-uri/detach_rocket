@@ -14,6 +14,7 @@ def feature_detachment(classifier,
                         y_test: np.ndarray,
                         drop_percentage: float = 0.05,
                         total_number_steps: int = 150,
+                        multilabel_type: str = "norm",
                         verbose = True):
     """
     Applies Sequential Feature Detachment (SFD) to a feature matrix.
@@ -57,7 +58,19 @@ def feature_detachment(classifier,
     total_feats = X_train.shape[1]
 
     # Feature importance from full model
-    feature_importance_full = np.abs(classifier.coef_)[0,:]
+    
+    # Check if problem is multilabel
+    if np.shape(classifier.coef_)[0]>1:
+        if multilabel_type == "norm":
+            feature_importance_full = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=2)
+        elif multilabel_type == "max":
+            feature_importance_full = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=np.inf)
+        elif multilabel_type == "avg":
+            feature_importance_full = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=1)
+        else:
+            raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
+    else:
+        feature_importance_full = np.abs(classifier.coef_)[0,:]
 
     # Define percentage vector
     keep_percentage = 1-drop_percentage
@@ -107,7 +120,19 @@ def feature_detachment(classifier,
 
         # Kill masked features
         feature_importance[~selection_mask] = 0
-        feature_importance[selection_mask] = np.abs(classifier.coef_)[0,:]
+
+        # Compute feature importance taking into account multilabel type
+        if np.shape(classifier.coef_)[0]>1:
+            if multilabel_type == "norm":
+                feature_importance[selection_mask] = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=2)
+            elif multilabel_type == "max":
+                feature_importance[selection_mask] = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=np.inf)
+            elif multilabel_type == "avg":
+                feature_importance[selection_mask] = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=1)
+            else:
+                raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
+        else:
+            feature_importance[selection_mask] = np.abs(classifier.coef_)[0,:]
 
         if verbose==True:
             print("Step {} out of {}".format(count+1, total_number_steps))
