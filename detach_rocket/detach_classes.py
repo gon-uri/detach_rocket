@@ -24,7 +24,8 @@ class DetachRocket:
         trade_off=0.1,
         recompute_alpha = True,
         val_ratio=0.33,
-        verbose = False
+        verbose = False,
+        multilabel_type = 'max'
         ):
 
         self._sfd_curve = None
@@ -49,6 +50,7 @@ class DetachRocket:
         self.val_ratio = val_ratio
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
+        self.multilabel_type = multilabel_type
 
        # Create rocket model
         if model_type == "rocket":
@@ -109,7 +111,7 @@ class DetachRocket:
         if self.verbose == True:
             print('Applying Sequential Feature Detachment')
 
-        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose)
+        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
 
         # Training Optimal Model
         if self.verbose == True:
@@ -181,7 +183,8 @@ class DetachMatrix:
         trade_off=0.1,
         recompute_alpha = True,
         val_ratio=0.33,
-        verbose = False
+        verbose = False,
+        multilabel_type = 'max'
         ):
 
         self._sfd_curve = None
@@ -198,11 +201,13 @@ class DetachMatrix:
         self._max_percentage = None
         self._is_fitted = False
         self._optimal_computed = False
+        
 
         self.trade_off = trade_off
         self.val_ratio = val_ratio
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
+        self.multilabel_type = multilabel_type
 
         self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
         self._scaler = StandardScaler(with_mean=True)
@@ -251,7 +256,7 @@ class DetachMatrix:
         if self.verbose == True:
             print('Applying Sequential Feature Detachment')
 
-        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose)
+        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
 
         # Training Optimal Model
         if self.verbose == True:
