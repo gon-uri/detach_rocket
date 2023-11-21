@@ -8,8 +8,8 @@ from sklearn.linear_model import (RidgeClassifierCV ,RidgeClassifier)
 from sklearn.preprocessing import StandardScaler
 from sktime.transformations.panel.rocket import (
     Rocket,
-    MiniRocket,
-    MultiRocket
+    MiniRocketMultivariate,
+    MultiRocketMultivariate
 )
 from sklearn.model_selection import train_test_split
 import numpy as np
@@ -54,9 +54,9 @@ class DetachRocket:
         if model_type == "rocket":
             self._full_transformer = Rocket(num_kernels=num_kernels)
         elif model_type == "minirocket":
-            self._full_transformer = MiniRocket(num_kernels=num_kernels)
+            self._full_transformer = MiniRocketMultivariate(num_kernels=num_kernels)
         elif model_type == "multirocket":
-            self._full_transformer = MultiRocket(num_kernels=num_kernels)
+            self._full_transformer = MultiRocketMultivariate(num_kernels=num_kernels)
         else:
             raise ValueError('Invalid model_type argument. Choose from: "rocket", "minirocket", or "multirocket".')
 
