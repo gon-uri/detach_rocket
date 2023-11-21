@@ -47,7 +47,7 @@ Detailed usage examples can be found in the included Jupyter notebooks in the [e
 
 ## Upcoming Features
 
-- [ ] Built-in support for multilabel classification.
+- [x] Built-in support for multilabel classification.
 - [ ] Pytorch implementation of ROCKET, MiniRocket or MultiROCKET.
 
 ## License
