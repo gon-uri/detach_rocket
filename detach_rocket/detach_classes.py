@@ -17,6 +17,46 @@ import numpy as np
 
 class DetachRocket:
 
+    """
+    Rocket model with feature detachment. 
+    For univariate time series, the shape of `X_train` should be (n_instances, n_timepoints).
+    For multivariate time series, the shape of `X_train` should be (n_instances, n_variables, n_timepoints).
+
+    Parameters:
+    - model_type: Type of the rocket model ("rocket", "minirocket", or "multirocket").
+    - num_kernels: Number of kernels for the rocket model.
+    - trade_off: Trade-off parameter to set optimal pruning.
+    - recompute_alpha: Whether to recompute alpha for optimal model training.
+    - val_ratio: Validation set ratio.
+    - verbose: Verbosity for logging.
+    - multilabel_type: Type of feature ranking in case of multilabel classification ("max" by default).
+
+    Attributes:
+    - _sfd_curve: Curve for Sequential Feature Detachment.
+    - _full_transformer: Full transformer for rocket model.
+    - _full_classifier: Full classifier for baseline.
+    - _full_model_alpha: Alpha for full model.
+    - _classifier: Classifier for optimal model.
+    - _feature_matrix: Feature matrix.
+    - _feature_importance_matrix: Matrix for feature importance. Zero values indicate pruned features. Dimension: [Number of steps, Number of features].
+    - _percentage_vector: Vector of percentage values.
+    - _scaler: Scaler for feature matrix.
+    - _labels: Labels.
+    - _acc_train: Training accuracy.
+    - _max_index: Index for maximum percentage.
+    - _max_percentage: Maximum percentage.
+    - _is_fitted: Flag indicating if the model is fitted.
+    - _optimal_computed: Flag indicating if optimal model is computed.
+
+    Methods:
+    - fit: Fit the DetachRocket model.
+    - fit_trade_off: Fit the model with a given trade-off.
+    - predict: Make predictions using the fitted model.
+    - score: Get the accuracy score of the model.
+
+    """
+    
+
     def __init__(
         self,
         model_type='rocket',
@@ -31,15 +71,15 @@ class DetachRocket:
         self._sfd_curve = None
         #self._transformer = None
         self._full_transformer = None
-        self._scaler = None
-        self._classifier = None
-        self._acc_train = None
         self._full_classifier = None
-        self._percentage_vector = None
-        self._feature_matrix = None
-        self._labels = None
-        self._feature_importance_matrix = None
         self._full_model_alpha = None
+        self._classifier = None
+        self._feature_matrix = None
+        self._feature_importance_matrix = None
+        self._percentage_vector = None
+        self._scaler = None
+        self._labels = None
+        self._acc_train = None
         self._max_index = None
         self._max_percentage = None
         self._is_fitted = False
@@ -177,6 +217,45 @@ class DetachRocket:
 
 
 class DetachMatrix:
+    """
+    A class for pruning a feature matrix using feature detachment.
+    The shape of the input matrix should be (n_instances, n_features).
+
+    Parameters:
+    - trade_off: Trade-off parameter.
+    - recompute_alpha: Whether to recompute alpha for optimal model training.
+    - val_ratio: Validation set ratio.
+    - verbose: Verbosity for logging.
+    - multilabel_type: Type of multilabel classification ("max" by default).
+
+    Attributes:
+    - _sfd_curve: Curve for Sequential Feature Detachment.
+    - _scaler: Scaler for feature matrix.
+    - _classifier: Classifier for optimal model.
+    - _acc_train: Training accuracy.
+    - _full_classifier: Full classifier for baseline.
+    - _percentage_vector: Vector for percentage values.
+    - _feature_matrix: Feature matrix.
+    - _labels: Labels.
+    - _feature_importance_matrix: Matrix for feature importance.
+    - _full_model_alpha: Alpha for full model.
+    - _max_index: Index for maximum percentage.
+    - _max_percentage: Maximum percentage.
+    - _is_fitted: Flag indicating if the model is fitted.
+    - _optimal_computed: Flag indicating if optimal model is computed.
+    - trade_off: Trade-off parameter.
+    - val_ratio: Validation set ratio.
+    - recompute_alpha: Whether to recompute alpha for optimal model training.
+    - verbose: Verbosity for logging.
+    - multilabel_type: Type of feature ranking in case of multilabel classification ("max" by default).
+
+    Methods:
+    - fit: Fit the DetachMatrix model.
+    - fit_trade_off: Fit the model with a given trade-off.
+    - predict: Make predictions using the fitted model.
+    - score: Get the accuracy score of the model.
+
+    """
 
     def __init__(
         self,
@@ -207,7 +286,8 @@ class DetachMatrix:
         self.val_ratio = val_ratio
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
-        self.multilabel_type = multilabel_type
+        self.multilabells
+        _type = multilabel_type
 
         self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
         self._scaler = StandardScaler(with_mean=True)
