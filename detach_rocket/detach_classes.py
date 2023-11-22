@@ -13,6 +13,11 @@ from sktime.transformations.panel.rocket import (
 )
 from sklearn.model_selection import train_test_split
 import numpy as np
+from fastcore.foundation import ifnone
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 class DetachRocket:
@@ -398,3 +403,48 @@ class DetachMatrix:
 
 
         return self._classifier.score(masked_scaled_X, y), self._full_classifier.score(scaled_X, y)
+
+
+
+class DetachRocketPytorch:
+    # taken from https://github.com/timeseriesAI/tsai/blob/bbc0d9341f3df13749c840a1e97d257b396bfd13/tsai/models/ROCKET_Pytorch.py#L16
+    def __init__(self, c_in, seq_len, n_kernels=10_000, kss=[7, 9, 11], device=None, verbose=False):
+
+        '''
+        Input: is a 3d torch tensor of type torch.float32. When used with univariate TS,
+        make sure you transform the 2d to 3d by adding unsqueeze(1).
+        c_in: number of channels or features. For univariate c_in is 1.
+        seq_len: sequence length
+        '''
+        super().__init__()
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        kss = [ks for ks in kss if ks < seq_len]
+        convs = nn.ModuleList()
+        for i in range(n_kernels):
+            ks = np.random.choice(kss)
+            dilation = 2**np.random.uniform(0, np.log2((seq_len - 1) // (ks - 1)))
+            padding = int((ks - 1) * dilation // 2) if np.random.randint(2) == 1 else 0
+            weight = torch.randn(1, c_in, ks)
+            weight -= weight.mean()
+            bias = 2 * (torch.rand(1) - .5)
+            layer = nn.Conv1d(c_in, 1, ks, padding=2 * padding, dilation=int(dilation), bias=True)
+            layer.weight = torch.nn.Parameter(weight, requires_grad=False)
+            layer.bias = torch.nn.Parameter(bias, requires_grad=False)
+            convs.append(layer)
+        self.convs = convs
+        self.n_kernels = n_kernels
+        self.kss = kss
+        self.to(device=device)
+        self.verbose=verbose
+
+    def forward(self, x):
+        _output = []
+        for i in range(self.n_kernels):
+            out = self.convs[i](x).cpu()
+            _max = out.max(dim=-1)[0]
+            _ppv = torch.gt(out, 0).sum(dim=-1).float() / out.shape[-1]
+            _output.append(_max)
+            _output.append(_ppv)
+        return torch.cat(_output, dim=1)
+
