@@ -18,7 +18,7 @@ from fastcore.foundation import ifnone
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from collections import OrderedDict
 
 class DetachRocket:
 
@@ -406,8 +406,26 @@ class DetachMatrix:
 
 
 
-class DetachRocketPytorch:
-    # taken from https://github.com/timeseriesAI/tsai/blob/bbc0d9341f3df13749c840a1e97d257b396bfd13/tsai/models/ROCKET_Pytorch.py#L16
+class RocketPytorch(nn.Sequential):
+    def __init__(self, c_in, c_out, seq_len, num_features=10_000):
+        
+        # Backbone
+        backbone =  RocketFeaturesPytorch(c_in, seq_len, n_kernels=num_features, kss=[7, 9, 11], device=None, verbose=False)
+
+        # Head
+        self.num_features = num_features
+        layers = [nn.Flatten()]
+        layers += [nn.BatchNorm1d(num_features)]
+        linear = nn.Linear(num_features, c_out)
+        nn.init.constant_(linear.weight.data, 0)
+        nn.init.constant_(linear.bias.data, 0) 
+        layers += [linear]
+        head = nn.Sequential(*layers)
+        super().__init__(OrderedDict([('backbone', backbone), ('head', head)]))
+
+
+
+class RocketFeaturesPytorch(nn.Module):
     def __init__(self, c_in, seq_len, n_kernels=10_000, kss=[7, 9, 11], device=None, verbose=False):
 
         '''
@@ -446,5 +464,5 @@ class DetachRocketPytorch:
             _ppv = torch.gt(out, 0).sum(dim=-1).float() / out.shape[-1]
             _output.append(_max)
             _output.append(_ppv)
-        return torch.cat(_output, dim=1)
-
+        features = torch.cat(_output, dim=1)
+        return features
