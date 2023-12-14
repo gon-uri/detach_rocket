@@ -407,6 +407,10 @@ class DetachMatrix:
 
 
 class RocketPytorch(nn.Sequential):
+    """
+    End-to-edn pytorch implementation of a Rocket classifier.
+    """
+
     def __init__(self, c_in, c_out, seq_len, num_features=10_000):
         
         # Backbone
