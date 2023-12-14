@@ -13,7 +13,6 @@ from sktime.transformations.panel.rocket import (
 )
 from sklearn.model_selection import train_test_split
 import numpy as np
-from fastcore.foundation import ifnone
 
 import torch
 import torch.nn as nn
@@ -97,7 +96,7 @@ class DetachRocket:
         self.verbose = verbose
         self.multilabel_type = multilabel_type
 
-       # Create rocket model
+        # Create rocket model
         if model_type == "rocket":
             self._full_transformer = Rocket(num_kernels=num_kernels)
         elif model_type == "minirocket":
@@ -286,13 +285,11 @@ class DetachMatrix:
         self._is_fitted = False
         self._optimal_computed = False
         
-
         self.trade_off = trade_off
         self.val_ratio = val_ratio
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
-        self.multilabells
-        _type = multilabel_type
+        self.multilabel_type = multilabel_type
 
         self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
         self._scaler = StandardScaler(with_mean=True)
@@ -406,31 +403,8 @@ class DetachMatrix:
 
 
 
-class RocketPytorch(nn.Sequential):
-    """
-    End-to-edn pytorch implementation of a Rocket classifier.
-    """
-
-    def __init__(self, c_in, c_out, seq_len, num_features=10_000):
-        
-        # Backbone
-        backbone =  RocketFeaturesPytorch(c_in, seq_len, n_kernels=num_features, kss=[7, 9, 11], device=None, verbose=False)
-
-        # Head
-        self.num_features = num_features
-        layers = [nn.Flatten()]
-        layers += [nn.BatchNorm1d(num_features)]
-        linear = nn.Linear(num_features, c_out)
-        nn.init.constant_(linear.weight.data, 0)
-        nn.init.constant_(linear.bias.data, 0) 
-        layers += [linear]
-        head = nn.Sequential(*layers)
-        super().__init__(OrderedDict([('backbone', backbone), ('head', head)]))
-
-
-
 class RocketFeaturesPytorch(nn.Module):
-    def __init__(self, c_in, seq_len, n_kernels=10_000, kss=[7, 9, 11], device=None, verbose=False):
+    def __init__(self, c_in, seq_len, n_kernels=10000, kss=[7, 9, 11], device=None, verbose=False):
 
         '''
         Input: is a 3d torch tensor of type torch.float32. When used with univariate TS,
@@ -442,6 +416,7 @@ class RocketFeaturesPytorch(nn.Module):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         kss = [ks for ks in kss if ks < seq_len]
+        print(kss)
         convs = nn.ModuleList()
         for i in range(n_kernels):
             ks = np.random.choice(kss)
@@ -470,3 +445,26 @@ class RocketFeaturesPytorch(nn.Module):
             _output.append(_ppv)
         features = torch.cat(_output, dim=1)
         return features
+    
+class RocketPytorch(nn.Sequential):
+    """
+    End-to-edn pytorch implementation of a Rocket classifier.
+    """
+
+    def __init__(self, c_in, c_out, seq_len, n_kernels=10000):
+        
+        # Backbone
+        backbone =  RocketFeaturesPytorch(c_in, seq_len, n_kernels=n_kernels, kss=[7, 9, 11], device=None, verbose=False)
+
+        # Head
+        self.num_features = 2*backbone.n_kernels
+        print(self.num_features)
+        layers = [nn.Flatten()]
+        layers += [nn.BatchNorm1d(self.num_features)]
+        linear = nn.Linear(self.num_features, c_out, bias=False)
+        nn.init.constant_(linear.weight.data, 0)
+        layers += [linear]
+        head = nn.Sequential(*layers)
+        super().__init__(OrderedDict([('backbone', backbone), ('head', head)]))
+
+
