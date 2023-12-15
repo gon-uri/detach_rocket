@@ -445,6 +445,16 @@ class RocketFeaturesPytorch(nn.Module):
             _output.append(_ppv)
         features = torch.cat(_output, dim=1)
         return features
+
+class MaskLayer(nn.Module):
+    """ Layer that multiply by a binary mask. No bias, no grad."""
+    def __init__(self, size_in):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(size_in))
+        self.weight.requires_grad = False
+
+    def forward(self, x):
+        return x * self.weight
     
 class RocketPytorch(nn.Sequential):
     """
@@ -461,9 +471,15 @@ class RocketPytorch(nn.Sequential):
         print(self.num_features)
         layers = [nn.Flatten()]
         layers += [nn.BatchNorm1d(self.num_features)]
+
+        # Add Mask Layer
+        layers += [MaskLayer(self.num_features)]
+
+        # Add Output Layer
         linear = nn.Linear(self.num_features, c_out, bias=False)
         nn.init.constant_(linear.weight.data, 0)
         layers += [linear]
+
         head = nn.Sequential(*layers)
         super().__init__(OrderedDict([('backbone', backbone), ('head', head)]))
 
