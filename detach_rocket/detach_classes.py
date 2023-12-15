@@ -416,7 +416,7 @@ class RocketFeaturesPytorch(nn.Module):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         kss = [ks for ks in kss if ks < seq_len]
-        print(kss)
+
         convs = nn.ModuleList()
         for i in range(n_kernels):
             ks = np.random.choice(kss)
@@ -463,12 +463,13 @@ class RocketPytorch(nn.Sequential):
 
     def __init__(self, c_in, c_out, seq_len, n_kernels=10000):
         
-        # Backbone
+        # BACKBONE
         backbone =  RocketFeaturesPytorch(c_in, seq_len, n_kernels=n_kernels, kss=[7, 9, 11], device=None, verbose=False)
 
-        # Head
+        # HEAD
+        
+        # Add normalization layer
         self.num_features = 2*backbone.n_kernels
-        print(self.num_features)
         layers = [nn.Flatten()]
         layers += [nn.BatchNorm1d(self.num_features)]
 
