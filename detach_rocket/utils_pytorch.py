@@ -173,7 +173,8 @@ def train_model(model, train_data, test_data, n_epochs = 100, batch_size=256, pa
     # Compute model output dimension
     c_out = model.head[3].weight.shape[0]
 
-    #Move model to device
+    # Move model to device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     # Create DataLoaders
