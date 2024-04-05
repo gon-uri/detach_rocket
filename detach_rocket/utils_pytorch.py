@@ -175,7 +175,7 @@ def train_model(model, train_data, test_data, n_epochs = 100, batch_size=256, pa
 
     # Move model to device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    model = model.to(device)
 
     # Create DataLoaders
     train_loader = DataLoader(train_data, shuffle=True, batch_size=batch_size, drop_last=False)
