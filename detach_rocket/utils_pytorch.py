@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 
 # Define device
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class EarlyStopping:
     """
@@ -175,6 +175,7 @@ def train_model(model, train_data, test_data, n_epochs = 100, batch_size=256, pa
 
     # Move model to device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = "cpu"
     model = model.to(device)
 
     # Create DataLoaders
