@@ -461,7 +461,7 @@ class RocketPytorch(nn.Sequential):
     End-to-edn pytorch implementation of a Rocket classifier.
     """
 
-    def __init__(self, c_in, c_out, seq_len, n_kernels=10000):
+    def __init__(self, c_in, c_out, seq_len, n_kernels=10000,**kwargs):
         
         # BACKBONE
         backbone =  RocketFeaturesPytorch(c_in, seq_len, n_kernels=n_kernels, kss=[7, 9, 11], device=None, verbose=False)
@@ -471,7 +471,7 @@ class RocketPytorch(nn.Sequential):
         # Add normalization layer
         self.num_features = 2*backbone.n_kernels
         layers = [nn.Flatten()]
-        layers += [nn.BatchNorm1d(self.num_features)]
+        layers += [nn.BatchNorm1d(self.num_features,**kwargs)]
 
         # Add Mask Layer
         layers += [MaskLayer(self.num_features)]
