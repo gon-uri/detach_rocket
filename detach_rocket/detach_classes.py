@@ -185,8 +185,8 @@ class DetachRocket:
         self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
                                                                     self._feature_matrix,
                                                                     self._labels,
-                                                                    alpha_optimal,
                                                                     max_index,
+                                                                    alpha_optimal,
                                                                     verbose = self.verbose)
 
         return
@@ -369,8 +369,8 @@ class DetachMatrix:
         self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
                                                                     self._feature_matrix,
                                                                     self._labels,
-                                                                    alpha_optimal,
                                                                     max_index,
+                                                                    alpha_optimal,
                                                                     verbose = self.verbose)
 
         return
