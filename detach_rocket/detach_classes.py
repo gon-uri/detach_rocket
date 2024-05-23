@@ -286,7 +286,7 @@ class DetachMatrix:
         self.val_ratio = val_ratio
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
-        self.multilabels_type = multilabel_type
+        self.multilabel_type = multilabel_type
 
         self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
         self._scaler = StandardScaler(with_mean=True)
