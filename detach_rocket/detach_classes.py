@@ -30,6 +30,7 @@ class DetachRocket:
     - val_ratio: Validation set ratio.
     - verbose: Verbosity for logging.
     - multilabel_type: Type of feature ranking in case of multilabel classification ("max" by default).
+    - fixed_percentage: If not None, the trade_off parameter is ignored and the model is fitted with a fixed percentage of selected features.
 
     Attributes:
     - _sfd_curve: Curve for Sequential Feature Detachment.
@@ -51,6 +52,7 @@ class DetachRocket:
     Methods:
     - fit: Fit the DetachRocket model.
     - fit_trade_off: Fit the model with a given trade-off.
+    - fit_fixed_percentage: Fit the model with a fixed percentage of features.
     - predict: Make predictions using the fitted model.
     - score: Get the accuracy score of the model.
 
@@ -65,7 +67,8 @@ class DetachRocket:
         recompute_alpha = True,
         val_ratio=0.33,
         verbose = False,
-        multilabel_type = 'max'
+        multilabel_type = 'max',
+        fixed_percentage = None
         ):
 
         self._sfd_curve = None
@@ -75,6 +78,7 @@ class DetachRocket:
         self._full_model_alpha = None
         self._classifier = None
         self._feature_matrix = None
+        self._feature_matrix_val = None
         self._feature_importance_matrix = None
         self._percentage_vector = None
         self._scaler = None
@@ -91,8 +95,9 @@ class DetachRocket:
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
         self.multilabel_type = multilabel_type
+        self.fixed_percentage = fixed_percentage
 
-       # Create rocket model
+        # Create rocket model
         if model_type == "rocket":
             self._full_transformer = Rocket(num_kernels=num_kernels)
         elif model_type == "minirocket":
@@ -107,7 +112,8 @@ class DetachRocket:
 
         return
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None, val_set=None, val_set_y=None, X_test=None, y_test=None):
+
         assert y is not None, "Labels are required to fit Detach Rocket"
 
         if self.verbose == True:
@@ -122,10 +128,9 @@ class DetachRocket:
         # scale feature matrix
         self._feature_matrix = self._scaler.fit_transform(self._feature_matrix)
 
-        # TODO: if not enough samples for train/val split
-        # if self.trade_off == None:
-        #   print("Using default pruning level of 90%")
-        # else:
+        if val_set is not None:
+            self._feature_matrix_val = self._full_transformer.transform(val_set)
+            self._feature_matrix_val = self._scaler.transform(self._feature_matrix_val)
 
         # Train full rocket as baseline
         self._full_classifier.fit(self._feature_matrix, y)
@@ -136,29 +141,72 @@ class DetachRocket:
         print('Train Accuraccy Full ROCKET: {:.2f}%'.format(100*self._full_classifier.score(self._feature_matrix, y)))
         print('-------------------------')
 
-        # Train-Validation split
-        X_train, X_val, y_train, y_val = train_test_split(self._feature_matrix,
-                                                            y,
-                                                            test_size=self.val_ratio,
-                                                            random_state=42,
-                                                            stratify=y)
+        # If fixed percentage is not provided, we set the number of features using the validation set
+        if self.fixed_percentage is None:
+            
+            # Assert no test set is provided
+            assert X_test is None, "X_test is not allowed when using trade-off, SFD curves are  computed with a validation set."
 
-        # Train model for selected features
-        sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
-        sfd_classifier.fit(X_train, y_train)
+            if val_set is not None:
+                X_train = self._feature_matrix
+                X_val = self._feature_matrix_val
+                y_train = y
+                y_val = val_set_y
+            else:
+            # Train-Validation split
+                X_train, X_val, y_train, y_val = train_test_split(self._feature_matrix,
+                                                                    y,
+                                                                    test_size=self.val_ratio,
+                                                                    random_state=42,
+                                                                    stratify=y)
 
-        # Feature Detachment
-        if self.verbose == True:
-            print('Applying Sequential Feature Detachment')
+            # Train model for selected features
+            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
+            sfd_classifier.fit(X_train, y_train)
 
-        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
+            # Feature Detachment
+            if self.verbose == True:
+                print('Applying Sequential Feature Detachment')
 
-        # Training Optimal Model
-        if self.verbose == True:
-            print('Training Optimal Model')
+            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
 
-        self._is_fitted = True
-        self.fit_trade_off(self.trade_off)
+            self._is_fitted = True
+
+            # Training Optimal Model
+            if self.verbose == True:
+                print('Training Optimal Model')
+            
+            self.fit_trade_off(self.trade_off)
+
+        # If fixed percentage is provided, no validation set is required
+        else:
+            # Assert there is no validation set
+            assert val_set is None, "Validation set is not allowed when using fixed percentage of features, since it is not required for training"
+            # Assert that both X_test set and y_test labels are provided
+            assert X_test is not None, "X_test is required to fit Detach Rocket with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
+            assert y_test is not None, "y_test is required to fit Detach Rocket with fixed percentage. . It is not used for training, but for plotting the feature detachment curve."
+
+            # We don't need to split the data into train and validation
+            # We are using a fixed percentage of features
+            X_train = self._feature_matrix
+            y_train = y
+            X_test = self._scaler.transform(self._full_transformer.transform(X_test))
+
+            # Train model for selected features
+            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
+            sfd_classifier.fit(X_train, y_train)
+
+            # Feature Detachment
+            if self.verbose == True:
+                print('Applying Sequential Feature Detachment')
+            
+            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_test, y_train, y_test, verbose=self.verbose, multilabel_type = self.multilabel_type)
+
+            self._is_fitted = True
+
+            if self.verbose == True:
+                print('Using fixed percentage of features')
+            self.fit_fixed_percentage(self.fixed_percentage)
 
         return
 
@@ -185,10 +233,37 @@ class DetachRocket:
         self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
                                                                     self._feature_matrix,
                                                                     self._labels,
-                                                                    max_index,
+                                                                    self._max_index,
                                                                     alpha_optimal,
                                                                     verbose = self.verbose)
 
+        return
+    
+    def fit_fixed_percentage(self, fixed_percentage=None, graphics=True):
+
+        assert fixed_percentage is not None, "Missing argument"
+        assert self._is_fitted == True, "Model not fitted. Call fit method first."
+
+        self._max_index = (np.abs(self._percentage_vector - self.fixed_percentage)).argmin()
+        self._max_percentage = self._percentage_vector[self._max_index]
+
+        # Check if alpha will be recomputed
+        if self.recompute_alpha:
+            alpha_optimal = None
+        else:
+            alpha_optimal = self._full_model_alpha
+
+        # Create feature mask
+        self._feature_mask = self._feature_importance_matrix[self._max_index]>0
+
+        # Re-train optimal model
+        self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
+                                                                    self._feature_matrix,
+                                                                    self._labels,
+                                                                    self._max_index,
+                                                                    alpha_optimal,
+                                                                    verbose = self.verbose)
+        
         return
 
     def predict(self,X):
@@ -286,30 +361,29 @@ class DetachMatrix:
         self.val_ratio = val_ratio
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
-        self.multilabels_type = multilabel_type
+        self.multilabel_type = multilabel_type
 
         self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
         self._scaler = StandardScaler(with_mean=True)
 
         return
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None, val_set=None, val_set_y=None, X_test=None, y_test=None):
+
         assert y is not None, "Labels are required to fit Detach Matrix"
 
         self._feature_matrix = X
         self._labels = y
+
+        if val_set is not None:
+            self._feature_matrix_val = val_set
 
         if self.verbose == True:
             print('Fitting Full Model')
 
         # scale feature matrix
         self._feature_matrix = self._scaler.fit_transform(self._feature_matrix)
-        
-
-        # TODO: if not enough samples for train/val split
-        # if self.trade_off == None:
-        #   print("Using default pruning level of 90%")
-        # else:
+    
 
         # Train full rocket as baseline
         self._full_classifier.fit(self._feature_matrix, y)
@@ -320,29 +394,73 @@ class DetachMatrix:
         print('Train Accuraccy Full Features: {:.2f}%'.format(100*self._full_classifier.score(self._feature_matrix, y)))
         print('-------------------------')
 
-        # Train-Validation split
-        X_train, X_val, y_train, y_val = train_test_split(self._feature_matrix,
-                                                            y,
-                                                            test_size=self.val_ratio,
-                                                            random_state=42,
-                                                            stratify=y)
 
-        # Train model for selected features
-        sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
-        sfd_classifier.fit(X_train, y_train)
+        # If fixed percentage is not provided, we set the number of features using the validation set
+        if self.fixed_percentage is None:
+            
+            # Assert no test set is provided
+            assert X_test is None, "X_test is not allowed when using trade-off, SFD curves are  computed with a validation set."
 
-        # Feature Detachment
-        if self.verbose == True:
-            print('Applying Sequential Feature Detachment')
+            if val_set is not None:
+                X_train = self._feature_matrix
+                X_val = self._feature_matrix_val
+                y_train = y
+                y_val = val_set_y
+            else:
+            # Train-Validation split
+                X_train, X_val, y_train, y_val = train_test_split(self._feature_matrix,
+                                                                    y,
+                                                                    test_size=self.val_ratio,
+                                                                    random_state=42,
+                                                                    stratify=y)
 
-        self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
+            # Train model for selected features
+            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
+            sfd_classifier.fit(X_train, y_train)
 
-        # Training Optimal Model
-        if self.verbose == True:
-            print('Training Optimal Model')
+            # Feature Detachment
+            if self.verbose == True:
+                print('Applying Sequential Feature Detachment')
 
-        self._is_fitted = True
-        self.fit_trade_off(self.trade_off)
+            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
+
+            self._is_fitted = True
+
+            # Training Optimal Model
+            if self.verbose == True:
+                print('Training Optimal Model')
+            
+            self.fit_trade_off(self.trade_off)
+
+        # If fixed percentage is provided, no validation set is required
+        else:
+            # Assert there is no validation set
+            assert val_set is None, "Validation set is not allowed when using fixed percentage of features, since it is not required for training"
+            # Assert that both X_test set and y_test labels are provided
+            assert X_test is not None, "X_test is required to fit Detach Matrix with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
+            assert y_test is not None, "y_test is required to fit Detach Matrix with fixed percentage. . It is not used for training, but for plotting the feature detachment curve."
+
+            # We don't need to split the data into train and validation
+            # We are using a fixed percentage of features
+            X_train = self._feature_matrix
+            y_train = y
+            X_test = self._scaler.transform(self._full_transformer.transform(X_test))
+
+            # Train model for selected features
+            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
+            sfd_classifier.fit(X_train, y_train)
+
+            # Feature Detachment
+            if self.verbose == True:
+                print('Applying Sequential Feature Detachment')
+            
+            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_test, y_train, y_test, verbose=self.verbose, multilabel_type = self.multilabel_type)
+
+            self._is_fitted = True
+
+            if self.verbose == True:
+                print('Using fixed percentage of features')
+            self.fit_fixed_percentage(self.fixed_percentage)
 
         return
 
@@ -373,6 +491,33 @@ class DetachMatrix:
                                                                     alpha_optimal,
                                                                     verbose = self.verbose)
 
+        return
+
+    def fit_fixed_percentage(self, fixed_percentage=None, graphics=True):
+
+        assert fixed_percentage is not None, "Missing argument"
+        assert self._is_fitted == True, "Model not fitted. Call fit method first."
+
+        self._max_index = (np.abs(self._percentage_vector - self.fixed_percentage)).argmin()
+        self._max_percentage = self._percentage_vector[self._max_index]
+
+        # Check if alpha will be recomputed
+        if self.recompute_alpha:
+            alpha_optimal = None
+        else:
+            alpha_optimal = self._full_model_alpha
+
+        # Create feature mask
+        self._feature_mask = self._feature_importance_matrix[self._max_index]>0
+
+        # Re-train optimal model
+        self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
+                                                                    self._feature_matrix,
+                                                                    self._labels,
+                                                                    self._max_index,
+                                                                    alpha_optimal,
+                                                                    verbose = self.verbose)
+        
         return
 
     def predict(self,X):
