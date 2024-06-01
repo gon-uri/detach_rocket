@@ -11,7 +11,7 @@ import pickle
 from scipy.io.arff import loadarff
 from sklearn.utils import Bunch
 from urllib.request import urlretrieve
-from pyts.datasets import ucr_dataset_list
+from pyts.datasets import ucr_dataset_list, ucr_dataset_info
 import zipfile
 
 
@@ -73,64 +73,64 @@ def _correct_ucr_name_description(dataset):
 #     return datasets
 
 
-def ucr_dataset_info(dataset=None):
-    """Information about the UCR datasets.
+#def ucr_dataset_info(dataset=None):
+#    """Information about the UCR datasets.
+#
+#    Parameters
+#    ----------
+#    dataset : str, list of str or None (default = None)
+#        The data sets for which the information will be returned.
+#        If None, the information for all the datasets is returned.
 
-    Parameters
-    ----------
-    dataset : str, list of str or None (default = None)
-        The data sets for which the information will be returned.
-        If None, the information for all the datasets is returned.
+#    Returns
+#    -------
+#    dictionary : dict
+#        Dictionary with the information for each dataset.
 
-    Returns
-    -------
-    dictionary : dict
-        Dictionary with the information for each dataset.
+#    References
+#    ----------
+#    .. [1] `List of datasets on the UEA & UCR archive
+#           <http://www.timeseriesclassification.com/dataset.php>`_
 
-    References
-    ----------
-    .. [1] `List of datasets on the UEA & UCR archive
-           <http://www.timeseriesclassification.com/dataset.php>`_
+#    Examples
+#    --------
+#    >>> from pyts.datasets import ucr_dataset_info
+#    >>> ucr_dataset_info('Adiac')['n_classes']
+#    37
 
-    Examples
-    --------
-    >>> from pyts.datasets import ucr_dataset_info
-    >>> ucr_dataset_info('Adiac')['n_classes']
-    37
+#    """
+#    module_path = os.path.dirname(__file__)
+#    finfo = os.path.join(module_path, 'info', 'ucr.pickle')
+#    dictionary = pickle.load(open(finfo, 'rb'))
+#    datasets = list(dictionary.keys())
 
-    """
-    module_path = os.path.dirname(__file__)
-    finfo = os.path.join(module_path, 'info', 'ucr.pickle')
-    dictionary = pickle.load(open(finfo, 'rb'))
-    datasets = list(dictionary.keys())
-
-    if dataset is None:
-        return dictionary
-    elif isinstance(dataset, str):
-        if dataset not in datasets:
-            raise ValueError(
-                "{0} is not a valid name. The list of available names "
-                "can be obtained by calling the "
-                "'pyts.datasets.ucr_dataset_list' function."
-                .format(dataset)
-            )
-        else:
-            return dictionary[dataset]
-    elif isinstance(dataset, (list, tuple, np.ndarray)):
-        dataset = np.asarray(dataset)
-        invalid_datasets = np.setdiff1d(dataset, datasets)
-        if invalid_datasets.size > 0:
-            raise ValueError(
-                "The following names are not valid: {0}. The list of "
-                "available names can be obtained by calling the "
-                "'pyts.datasets.ucr_dataset_list' function."
-                .format(invalid_datasets)
-            )
-        else:
-            info = {}
-            for data in dataset:
-                info[data] = dictionary[data]
-            return info
+#    if dataset is None:
+#        return dictionary
+#    elif isinstance(dataset, str):
+#        if dataset not in datasets:
+#            raise ValueError(
+#                "{0} is not a valid name. The list of available names "
+#                "can be obtained by calling the "
+#                "'pyts.datasets.ucr_dataset_list' function."
+#                .format(dataset)
+#            )
+#        else:
+#            return dictionary[dataset]
+#    elif isinstance(dataset, (list, tuple, np.ndarray)):
+#        dataset = np.asarray(dataset)
+#        invalid_datasets = np.setdiff1d(dataset, datasets)
+#        if invalid_datasets.size > 0:
+#            raise ValueError(
+#                "The following names are not valid: {0}. The list of "
+#                "available names can be obtained by calling the "
+#                "'pyts.datasets.ucr_dataset_list' function."
+#                .format(invalid_datasets)
+#            )
+#        else:
+#            info = {}
+#            for data in dataset:
+#                info[data] = dictionary[data]
+#            return info
 
 
 def fetch_ucr_dataset(dataset, use_cache=True, data_home=None,

@@ -1,6 +1,7 @@
 <img src="logo/detach_logo.png" align="right"
      alt="repo logo" width="180" height="180">
-
+<br/><br/>
+<br/><br/>
 # README
 Official repository for [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels.](https://arxiv.org/abs/2309.14518)
 
@@ -47,7 +48,7 @@ Detailed usage examples can be found in the included Jupyter notebooks in the [e
 
 ## Upcoming Features
 
-- [x] Built-in support for multilabel classification.
+- [x] Built-in support for multilabel classification (DONE!).
 - [ ] Pytorch implementation of ROCKET, MiniRocket or MultiROCKET.
 
 ## License
