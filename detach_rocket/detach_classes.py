@@ -116,6 +116,14 @@ class DetachRocket:
 
         assert y is not None, "Labels are required to fit Detach Rocket"
 
+        if self.fixed_percentage is not None:
+            # If fixed percentage is provided, no validation set is required
+            # Assert there is no validation set
+            assert val_set is None, "Validation set is not allowed when using fixed percentage of features, since it is not required for training"
+            # Assert that both X_test set and y_test labels are provided
+            assert X_test is not None, "X_test is required to fit Detach Rocket with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
+            assert y_test is not None, "y_test is required to fit Detach Rocket with fixed percentage. . It is not used for training, but for plotting the feature detachment curve."
+            
         if self.verbose == True:
             print('Applying Data Transformation')
 
@@ -178,14 +186,8 @@ class DetachRocket:
             
             self.fit_trade_off(self.trade_off)
 
-        # If fixed percentage is provided, no validation set is required
         else:
-            # Assert there is no validation set
-            assert val_set is None, "Validation set is not allowed when using fixed percentage of features, since it is not required for training"
-            # Assert that both X_test set and y_test labels are provided
-            assert X_test is not None, "X_test is required to fit Detach Rocket with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
-            assert y_test is not None, "y_test is required to fit Detach Rocket with fixed percentage. . It is not used for training, but for plotting the feature detachment curve."
-
+            # If fixed percentage is provided, no validation set is required
             # We don't need to split the data into train and validation
             # We are using a fixed percentage of features
             X_train = self._feature_matrix
