@@ -342,7 +342,8 @@ class DetachMatrix:
         recompute_alpha = True,
         val_ratio=0.33,
         verbose = False,
-        multilabel_type = 'max'
+        multilabel_type = 'max',
+        fixed_percentage = None
         ):
 
         self._sfd_curve = None
@@ -366,6 +367,7 @@ class DetachMatrix:
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
         self.multilabel_type = multilabel_type
+        self.fixed_percentage = fixed_percentage
 
         self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
         self._scaler = StandardScaler(with_mean=True)
