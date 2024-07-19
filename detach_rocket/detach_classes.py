@@ -450,7 +450,7 @@ class DetachMatrix:
             # We are using a fixed percentage of features
             X_train = self._feature_matrix
             y_train = y
-            X_test = self._scaler.transform(self._full_transformer.transform(X_test))
+            X_test = self._scaler.transform(X_test)
 
             # Train model for selected features
             sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
