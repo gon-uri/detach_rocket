@@ -419,9 +419,10 @@ def fetch_uea_dataset(dataset, use_cache=True, data_home=None,
     if use_cache and os.path.exists(os.path.join(path, correct_dataset)):
         bunch = _load_uea_dataset(correct_dataset, path)
     else:
-        url = ("http://www.timeseriesclassification.com/"
-               "ClassificationDownloads/{0}.zip"
-               .format(correct_dataset))
+        #url = ("http://www.timeseriesclassification.com/"
+        #       "ClassificationDownloads/{0}.zip"
+        #       .format(correct_dataset))
+        url = ("https://www.timeseriesclassification.com/aeon-toolkit/{0}.zip".format(correct_dataset))
         filename = 'temp_{}'.format(correct_dataset)
         _ = urlretrieve(url, os.path.join(path, filename))
         zipfile.ZipFile(os.path.join(path, filename)).extractall(
