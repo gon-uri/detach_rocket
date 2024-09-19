@@ -1,8 +1,12 @@
-<img src="logo/detach_logo.png" align="right"
-     alt="repo logo" width="180" height="180">
-<br/><br/>
-<br/><br/>
-# README
+<img align="right" src="logo/detach_logo.png" alt="Logo" width="150"/>
+<div id="toc">
+    <ul style="list-style: none;">
+    <summary>
+      <h1>Detach-ROCKET</h1>
+    </summary>
+  </ul>
+</div>
+
 Official repository for [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels](https://link.springer.com/article/10.1007/s10618-024-01062-7) and [Classification of raw MEG/EEG data with detach-rocket ensemble: an improved rocket algorithm for multivariate time series analysis](https://www.arxiv.org/abs/2408.02760).
 
 ## Overview
