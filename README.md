@@ -75,7 +75,7 @@ Detailed usage examples can be found in the included Jupyter notebooks in the [e
 ## Upcoming Features
 
 - [x] Built-in support for multilabel classification. (DONE!)
-- [x] Pytorch implementations of Detach-MiniRocket. (DONE!)
+- [x] Pytorch implementation of Detach-MiniRocket. (DONE!)
 - [x] Add channel releavance for Detach-MiniRocket. (DONE!)
 - [x] Implementation of Detach-ROCKET Ensemble. (DONE!)
 - [x] Add channel releavance and label probability for Detach-ROCKET Ensemble. (DONE!)
