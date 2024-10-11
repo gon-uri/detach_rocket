@@ -2,7 +2,8 @@
 DetachRocket end-to-end model class, DetachMatrix class and DetachEnsemble class.
 """
 
-from detach_rocket.utils import (feature_detachment, select_optimal_model, retrain_optimal_model)
+from detach_rocket.utils import (feature_detachment, select_optimal_pruning, retrain_optimal_model)
+from detach_rocket.pruner import get_transformer_pruner
 
 from sklearn.linear_model import (RidgeClassifierCV ,RidgeClassifier)
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -16,6 +17,101 @@ import numpy as np
 import torch
 
 class DetachRocket:
+    def __init__(
+        self,
+        transformer,
+        trade_off=0.1,
+        set_percentage=None,
+        recompute_alpha=None,
+        verbose=False
+        ):
+        self._transformer = transformer
+        self._classifier = RidgeClassifier()
+        self._scaler = StandardScaler(with_mean=True)
+        self._feature_matrix = None
+        self._feature_matrix_val = None
+        self._trade_off = trade_off
+        self._set_percentage = set_percentage
+        self._recompute_alpha = recompute_alpha
+        self._full_model_alpha = None
+        self._verbose = verbose
+    
+    def log(self, message):
+        if self._verbose:
+            print(message)
+
+    def _validate_inputs(self, X, y, X_val, y_val):
+        if X is None or y is None:
+            raise ValueError("Training data (X, y) is required.")
+
+        if self._set_percentage is None and (X_val is None or y_val is None):
+            raise ValueError("Validation data (X_val, y_val) is required for calculating optimal pruning.")
+        
+        if self._set_percentage is not None and (X_val is not None or y_val is not None):
+            self.log("Warning: Validation set provided but will be ignored as set_percentage is set.")
+
+        if self._set_percentage is not None:
+            self.log("Warning: Using fixed percentage for pruning. trade_off will be ignored.")
+            
+    def fit(self, X, y=None, X_val=None, y_val=None, **kwargs):
+        
+        self._validate_inputs(X, y, X_val, y_val)
+
+        self.log("Applying Data Transformation")
+        self._feature_matrix = self._transformer.fit_transform(X)
+        self._feature_matrix = self._scaler.fit_transform(self._feature_matrix)
+
+        if X_val is not None:
+            self._feature_matrix_val = self._transformer.transform(X_val)
+            self._feature_matrix_val = self._scaler.transform(self._feature_matrix_val)
+
+        self._fit_params = kwargs
+
+        self.log("Fitting Full Model")
+        full_classifier = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
+        full_classifier.fit(self._feature_matrix, y)
+        self._full_model_alpha = full_classifier.alpha_
+        
+        self._classifier = RidgeClassifier(alpha=self._full_model_alpha)
+        
+        self._retained_ratios, self._train_scores, self._val_scores, self._importance_matrix = feature_detachment(
+            self._classifier,
+            self._feature_matrix,
+            X_test=self._feature_matrix_val,
+            y_train=y,
+            y_test=y_val,
+            **kwargs
+        )
+        
+        # Decide on the pruning level
+        if self._set_percentage is None:
+            self.log("Finding the optimal pruning level")
+            self._max_index, self._max_percentage = select_optimal_pruning(
+                self._retained_ratios, self._val_scores, trade_off=self._trade_off
+            )
+        else:
+            self.log(f"Using fixed percentage for pruning: {self._set_percentage}%")
+            self._max_index = (np.abs(self._retained_ratios - self._set_percentage / 100)).argmin()
+            self._max_percentage = self._retained_ratios[self._max_index]
+
+        # Retrain the model with the optimal pruning level
+        self.log("Retraining the model with the optimal pruning level")
+        self._optimal_feature_mask = self._importance_matrix[self._max_index] > 0
+        
+        self.log("Initializing pruned transformer with the selected features")
+        pruner = get_transformer_pruner(self._transformer)
+        self._pruned_transformer = pruner.prune_transformer(self._transformer, self._optimal_feature_mask)
+
+        # Transform the data into the pruned feature space
+        self._pruned_feature_matrix = self._pruned_transformer.transform(X)
+        
+        if self._recompute_alpha:
+            self._classifier = RidgeClassifierCV()
+            self._classifier.fit(self._pruned_feature_matrix, y)
+
+        return self
+
+class DetachRocket_og:
 
     """
     Rocket model with feature detachment. 
@@ -52,7 +148,7 @@ class DetachRocket:
     Methods:
     - fit: Fit the DetachRocket model.
     - fit_trade_off: Fit the model with a given trade-off.
-    - fit_fixed_percentage: Fit the model with a fixed percentage of features.
+    - fit_set_optimal: Fit the model with a fixed percentage of features.
     - predict: Make predictions using the fitted model.
     - score: Get the accuracy score of the model.
 
@@ -124,7 +220,7 @@ class DetachRocket:
             assert val_set is None, "Validation set is not allowed when using fixed percentage of features, since it is not required for training"
             # Assert that both X_test set and y_test labels are provided
             assert X_test is not None, "X_test is required to fit Detach Rocket with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
-            assert y_test is not None, "y_test is required to fit Detach Rocket with fixed percentage. . It is not used for training, but for plotting the feature detachment curve."
+            assert y_test is not None, "y_test is required to fit Detach Rocket with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
             
         if self.verbose == True:
             print('Applying Data Transformation')
@@ -210,7 +306,7 @@ class DetachRocket:
 
             if self.verbose == True:
                 print('Using fixed percentage of features')
-            self.fit_fixed_percentage(self.fixed_percentage)
+            self.fit_set_optimal(self.fixed_percentage)
 
         return
 
@@ -243,7 +339,7 @@ class DetachRocket:
 
         return
     
-    def fit_fixed_percentage(self, fixed_percentage=None, graphics=True):
+    def fit_set_optimal(self, fixed_percentage=None, graphics=True):
 
         assert fixed_percentage is not None, "Missing argument"
         assert self._is_fitted == True, "Model not fitted. Call fit method first."
@@ -466,7 +562,7 @@ class DetachMatrix:
 
             if self.verbose == True:
                 print('Using fixed percentage of features')
-            self.fit_fixed_percentage(self.fixed_percentage)
+            self.fit_set_optimal(self.fixed_percentage)
 
         return
 
@@ -499,7 +595,7 @@ class DetachMatrix:
 
         return
 
-    def fit_fixed_percentage(self, fixed_percentage=None, graphics=True):
+    def fit_set_optimal(self, fixed_percentage=None, graphics=True):
 
         assert fixed_percentage is not None, "Missing argument"
         assert self._is_fitted == True, "Model not fitted. Call fit method first."

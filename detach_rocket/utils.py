@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def feature_detachment(classifier,
+def feature_detachment_og(classifier,
                         X_train: np.ndarray,
                         X_test: np.ndarray,
                         y_train: np.ndarray,
@@ -141,7 +141,7 @@ def feature_detachment(classifier,
     return percentage_vector, np.asarray(score_list_train), np.asarray(score_list_test), feature_importance_matrix #,feature_selection_matrix
 
 
-def select_optimal_model(percentage_vector,
+def select_optimal_model_og(percentage_vector,
                             acc_test,
                             full_model_score_test,
                             acc_size_tradeoff_coef: float=0.1, # 0 means only weighting accuracy, +inf only weighting model size
@@ -210,7 +210,7 @@ def retrain_optimal_model(feature_mask,
                           y_train,
                           max_index,
                           model_alpha = None,
-                          verbose = True):
+                          verbose = False):
 
     """
     Function that retrains a Ridge classifier with the optimal subset of selected features.
@@ -260,3 +260,179 @@ def retrain_optimal_model(feature_mask,
     print('-------------------------')
 
     return optimal_classifier, optimal_acc_train
+
+
+
+
+def feature_detachment(classifier,
+                       X_train: np.ndarray,
+                       y_train: np.ndarray = None,
+                       X_test: np.ndarray = None,
+                       y_test: np.ndarray = None,
+                       drop_ratio: float = 0.05,
+                       num_steps: int = 150,
+                       multilabel_type: str = "norm",
+                       verbose: bool = False):
+    """
+    Applies Sequential Feature Detachment (SFD) to a feature matrix.
+
+    Parameters
+    ----------
+    classifier: sklearn model
+        Ridge linear classifier trained on the full training dataset.
+    X_train: numpy array
+        Training features matrix, a 2d array of shape (# instances, # features).
+    y_train: numpy array
+        Training labels.
+    X_test: numpy array
+        Test features matrix, a 2d array of shape (# instances, # features).
+    y_test: numpy array
+        Test labels.
+    drop_ratio: float
+        Proportion of features dropped at each step of the detachment process.
+    num_steps: int
+        Total number of detachment steps performed during SFD.
+    multilabel_type: str
+        Method to calculate feature importance for multilabel classification.
+    verbose: bool
+        If true, prints progress during the detachment process.
+
+    Returns
+    -------
+    retained_ratios: numpy array
+        Proportion of features retained at each detachment step.
+    score_list_train: numpy array
+        Training accuracy at each detachment step.
+    score_list_test: numpy array or None
+        Test accuracy at each detachment step (None if no validation set is provided).
+    feature_importance_matrix: numpy array
+        Feature importance matrix at each detachment step.
+    """
+    
+    if not hasattr(classifier, 'coef_'):
+        classifier.fit(X_train, y_train)
+    
+    # multilabel cases
+    multilabel_methods = {
+        "norm": lambda coef: np.linalg.norm(coef, axis=0, ord=2),
+        "max": lambda coef: np.linalg.norm(coef, axis=0, ord=np.inf),
+        "avg": lambda coef: np.linalg.norm(coef, axis=0, ord=1)
+    }
+
+    total_features = X_train.shape[1]
+
+    # Sequential feature detachment with an option to stop at set_percentage
+    retain_ratio = 1 - drop_ratio
+    retained_ratios_uniform = np.power(retain_ratio, np.arange(num_steps))
+
+    # Define the pruning steps
+    retained_features = np.unique((retained_ratios_uniform * total_features).astype(int))
+    retained_features = retained_features[::-1]
+    retained_features = retained_features[retained_features > 0]
+
+    # adjusted to size of retained_features
+    retained_ratios = retained_features / total_features
+
+    # Initialize lists and matrices
+    score_list_train = []
+    score_list_test = [] if X_test is not None and y_test is not None else None
+    selection_mask = np.full(total_features, False)
+    feature_importance_matrix = np.zeros((len(retained_features), total_features))
+
+    # Compute feature importance
+    if y_train.ndim > 1 and y_train.shape[1] > 1:
+        if multilabel_type not in multilabel_methods:
+            raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
+        calc_feature_importance = multilabel_methods[multilabel_type]
+    else:
+        calc_feature_importance = lambda coef: np.abs(coef)[0, :]
+
+    feature_importance = calc_feature_importance(classifier.coef_)
+
+    # Perform feature detachment
+    for count, num_features in enumerate(retained_features):
+
+        # drop_features = total_features - num_features
+        selected_idxs = np.argsort(feature_importance)[-num_features:]
+        selection_mask[:] = False
+        selection_mask[selected_idxs] = True
+
+        # Subsample features
+        X_train_subsampled = X_train[:, selection_mask]
+        classifier.fit(X_train_subsampled, y_train)
+
+        # Track training accuracy
+        avg_score_train = classifier.score(X_train_subsampled, y_train)
+        score_list_train.append(avg_score_train)
+
+        # Track test accuracy if X_test is provided
+        if score_list_test is not None:
+            X_test_subsampled = X_test[:, selection_mask]
+            avg_score_test = classifier.score(X_test_subsampled, y_test)
+            score_list_test.append(avg_score_test)
+
+        # Save current feature importance
+        feature_importance[~selection_mask] = 0  # Zero out dropped features
+        feature_importance_matrix[count, :] = feature_importance
+        
+        # Recompute feature importance for selected features
+        feature_importance[selection_mask] = calc_feature_importance(classifier.coef_)
+
+        if verbose:
+            current_percentage = retained_ratios[count]*100
+            print(f"Step {count+1} out of {num_steps}: {current_percentage:.2f}% of features used")    
+
+    if score_list_test is not None:
+        score_list_test = np.asarray(score_list_test)
+
+    return retained_ratios, np.asarray(score_list_train), score_list_test, feature_importance_matrix
+
+
+def select_optimal_pruning(retained_ratios,
+                           val_accuracies,
+                           norm_factor=None,
+                           trade_off: float = 0.1,
+                           smoothing_points: int = 3):
+    """
+    Function that selects the optimal model size after the SFD process.
+
+    Parameters
+    ----------
+    retained_ratios: numpy array
+        Array with the model size at each detachment step (proportion of the initial full model).
+    val_accuracies: numpy array
+        Accuracy on the validaiton set at each detachment step.
+    norm_factor: float
+        The normalization factor for accuracy (default is the first element of val_accuracies).
+        This is used to normalize the accuracy at each step relative to the full model.
+    trade_off: float
+        Parameter governing the tradeoff between size and accuracy. 0 means only weighting accuracy, +inf only weighting model size.
+    smoothing_points: int
+        Level of smoothing applied to the acc_test.
+
+    Returns
+    -------
+    max_index: int
+        Index of the optimal model (optimal number of SFD steps).
+    max_percentage: float
+        Size of the selected optimal model (proportion of the initial full model).
+    """
+    if norm_factor is None:
+        norm_factor = val_accuracies[0]
+
+    # Create model percentage vector
+    x_vec = (1 - retained_ratios)
+
+    # Create smoothed relative test accuracy vector
+    y_vec = (val_accuracies / norm_factor)
+    box = np.ones(smoothing_points) / smoothing_points
+    y_vec_smooth = np.convolve(y_vec, box, mode='same')
+
+    # Define the function to optimize
+    optimality_curve = trade_off * x_vec + y_vec_smooth
+
+    # Compute max of the function
+    max_index = np.argmax(optimality_curve)
+    max_percentage = retained_ratios[max_index]
+
+    return max_index, max_percentage
