@@ -60,7 +60,7 @@ def feature_detachment(classifier,
     # Feature importance from full model
     
     # Check if problem is multilabel
-    if np.shape(classifier.coef_)[0]>1:
+    if len(np.shape(classifier.coef_))>1:
         if multilabel_type == "norm":
             feature_importance_full = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=2)
         elif multilabel_type == "max":
