@@ -70,7 +70,7 @@ def feature_detachment(classifier,
         else:
             raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
     else:
-        feature_importance_full = np.abs(classifier.coef_)[0,:]
+        feature_importance_full = np.abs(classifier.coef_)[:]
 
     # Define percentage vector
     keep_percentage = 1-drop_percentage
