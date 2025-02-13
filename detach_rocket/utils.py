@@ -60,7 +60,9 @@ def feature_detachment(classifier,
     # Feature importance from full model
     
     # Check if problem is multilabel
-    if len(np.shape(classifier.coef_))>1:
+    if len(np.shape(classifier.coef_))>1: # OLD WAY (sklearn 1.3.2): if np.shape(classifier.coef_)[0]>1:
+        # The shape for univariate in 1.6.1 is (num_features,) and for multivariate (num_classes,num_features)
+        # The shape for univariate in 1.3.2 is (1,num_features) and for multivariate (num_classes,num_features)
         if multilabel_type == "norm":
             feature_importance_full = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=2)
         elif multilabel_type == "max":
@@ -70,7 +72,7 @@ def feature_detachment(classifier,
         else:
             raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
     else:
-        feature_importance_full = np.abs(classifier.coef_)[:]
+        feature_importance_full = np.abs(classifier.coef_)[:] # OLD WAY (sklearn 1.3.2): np.abs(classifier.coef_)[0,:]
 
     # Define percentage vector
     keep_percentage = 1-drop_percentage
@@ -122,7 +124,9 @@ def feature_detachment(classifier,
         feature_importance[~selection_mask] = 0
 
         # Compute feature importance taking into account multilabel type
-        if np.shape(classifier.coef_)[0]>1:
+        if len(np.shape(classifier.coef_))>1: # OLD WAY (sklearn 1.3.2): if np.shape(classifier.coef_)[0]>1:
+            # The shape for univariate in 1.6.1 is (num_features,) and for multivariate (num_classes,num_features)
+            # The shape for univariate in 1.3.2 is (1,num_features) and for multivariate (num_classes,num_features)
             if multilabel_type == "norm":
                 feature_importance[selection_mask] = np.linalg.norm(classifier.coef_[:,:],axis=0,ord=2)
             elif multilabel_type == "max":
@@ -132,7 +136,7 @@ def feature_detachment(classifier,
             else:
                 raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
         else:
-            feature_importance[selection_mask] = np.abs(classifier.coef_)[0,:]
+            feature_importance[selection_mask] = np.abs(classifier.coef_)[:] # OLD WAY (sklearn 1.3.2): np.abs(classifier.coef_)[0,:]
 
         if verbose==True:
             print("Step {} out of {}".format(count+1, total_number_steps))
