@@ -11,7 +11,7 @@ Official repository for [Detach-ROCKET: Sequential feature selection for time se
 
 ## Overview
 
-This repository contains Python implementations of Sequential Feature Detachment (SFD) for feature selection and Detach-ROCKET for time-series classification. Developed primarily in Python and utilizing NumPy, scikit-learn, and sktime libraries, the core functionalities are encapsulated within the following classes:
+This repository contains Python implementations of Sequential Feature Detachment (SFD) for feature selection and Detach-ROCKET for time-series classification. Developed entirely in Python using primarly NumPy, PyTorch, Scikit-Learn and Sktime libraries, the core functionalities are encapsulated within the following classes:
 
 - `DetachRocket`: Detach-ROCKET model class. It is constructed by pruning an initial ROCKET, MiniRocket or MultiROCKET model using SFD and selecting the optimal size.
   
@@ -75,7 +75,7 @@ Detailed usage examples can be found in the included Jupyter notebooks in the [e
 ## Upcoming Features
 
 - [x] Built-in support for multilabel classification. (DONE!)
-- [x] Pytorch implementations of Detach-MiniRocket. (DONE!)
+- [x] Pytorch implementation of Detach-MiniRocket. (DONE!)
 - [x] Add channel releavance for Detach-MiniRocket. (DONE!)
 - [x] Implementation of Detach-ROCKET Ensemble. (DONE!)
 - [x] Add channel releavance and label probability for Detach-ROCKET Ensemble. (DONE!)
