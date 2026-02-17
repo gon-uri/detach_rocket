@@ -828,7 +828,7 @@ class DetachEnsemble:
         multilabel_type="norm",
     ):
         try:
-            from detach_rocket.pytorch_minirocket import PytorchMiniRocketMultivariate
+            from detach_rocket.transformer_models import PytorchMiniRocketMultivariate
         except ImportError as exc:
             raise ImportError(
                 "DetachEnsemble requires PyTorch. Install it with: pip install detach_rocket[torch]"
