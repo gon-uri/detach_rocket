@@ -28,11 +28,31 @@ For a detailed explanation of the models and methods please refer to the [Detach
 
 ## Installation
 
-To install the required dependencies, execute:
+Install directly from GitHub:
 
 ```bash
-pip install numpy scikit-learn pyts torch matplotlib sktime==0.30.0
-pip install git+https://github.com/gon-uri/detach_rocket --quiet
+pip install git+https://github.com/gon-uri/detach_rocket
+```
+
+With optional dependencies:
+
+```bash
+# GPU-accelerated ensemble (DetachEnsemble)
+pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket"
+
+# Dataset download utilities
+pip install "detach_rocket[datasets] @ git+https://github.com/gon-uri/detach_rocket"
+
+# Everything
+pip install "detach_rocket[all] @ git+https://github.com/gon-uri/detach_rocket"
+```
+
+For development:
+
+```bash
+git clone https://github.com/gon-uri/detach_rocket.git
+cd detach_rocket
+pip install -e ".[dev]"
 ```
 
 ## Usage - DetachRocket
