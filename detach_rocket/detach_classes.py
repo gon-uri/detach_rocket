@@ -784,6 +784,11 @@ class DetachEnsemble:
         model (only used when ``set_percentage`` is *None*).
     verbose : bool, default=False
         Print progress messages.
+    multilabel_type : str, default="norm"
+        Method to aggregate multi-class Ridge coefficients into a single
+        feature-importance vector.  Forwarded to each inner
+        :class:`DetachRocket`.  One of ``"norm"`` (L2), ``"max"``
+        (L∞), or ``"avg"`` (L1).
 
     Attributes
     ----------
@@ -820,6 +825,7 @@ class DetachEnsemble:
         recompute_alpha=True,
         val_ratio=0.33,
         verbose=False,
+        multilabel_type="norm",
     ):
         try:
             from detach_rocket.pytorch_minirocket import PytorchMiniRocketMultivariate
@@ -835,6 +841,7 @@ class DetachEnsemble:
         self.recompute_alpha = recompute_alpha
         self.val_ratio = val_ratio
         self.verbose = verbose
+        self.multilabel_type = multilabel_type
 
         self.derockets = []
         for _ in range(num_models):
@@ -845,6 +852,7 @@ class DetachEnsemble:
                 set_percentage=set_percentage,
                 recompute_alpha=recompute_alpha,
                 verbose=verbose,
+                multilabel_type=multilabel_type,
             )
             self.derockets.append(model)
 
@@ -916,10 +924,9 @@ class DetachEnsemble:
 
         for m, model in enumerate(self.derockets):
             encoded_predictions = self.label_encoder.transform(model.predict(X))
-            train_acc = model.train_scores_[model.selected_step_index_]
+            train_acc = model.acc_train_
 
-            for p, pred in enumerate(encoded_predictions):
-                weight_matrix[p, pred, m] = train_acc
+            weight_matrix[np.arange(n_samples), encoded_predictions, m] = train_acc
 
         if proba == "soft":
             votes = weight_matrix.sum(axis=2)
@@ -945,6 +952,28 @@ class DetachEnsemble:
         """
         predictions = self.predict_proba(X).argmax(axis=1)
         return self.label_encoder.inverse_transform(predictions)
+
+    def score(self, X, y):
+        """Return the classification accuracy on (*X*, *y*).
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_channels, n_timepoints)
+            Input time series.
+        y : array-like of shape (n_samples,)
+            True labels.
+
+        Returns
+        -------
+        accuracy : float
+
+        Raises
+        ------
+        NotImplementedError
+            This method is not yet implemented.
+        """
+        # TODO: implement ensemble scoring strategy
+        raise NotImplementedError("DetachEnsemble.score() is not yet implemented.")
 
     def estimate_channel_relevance(self):
         """Estimate the relevance of each input channel.

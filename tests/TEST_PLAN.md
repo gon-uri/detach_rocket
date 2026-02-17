@@ -117,6 +117,6 @@ Returns array of shape `(n_channels,)` summing to ~1.
 
 ---
 
-**Note:** `DetachEnsemble` currently uses the old `DetachRocket` constructor API
-(`model_type=...`) which is incompatible with the new refactored `DetachRocket`.
-This must be fixed before these tests can run.
+**Note:** `DetachEnsemble` requires PyTorch (`pip install detach_rocket[torch]`).
+No automated test exists yet — needs a lightweight integration test with
+a small synthetic multivariate dataset.
