@@ -97,8 +97,8 @@ def retrain_optimal_model(
 
     if verbose:
         print("TRAINING RESULTS Detach Model:")
-        print("Optimal Alpha Detach Model: {:.2f}".format(model_alpha))
-        print("Train Accuracy Detach Model: {:.2f}%".format(100 * optimal_acc_train))
+        print(f"Optimal Alpha Detach Model: {model_alpha:.2f}")
+        print(f"Train Accuracy Detach Model: {100 * optimal_acc_train:.2f}%")
         print("-------------------------")
 
     return optimal_classifier, optimal_acc_train

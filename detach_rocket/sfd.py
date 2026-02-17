@@ -79,7 +79,8 @@ def feature_detachment(
             raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
         calc_feature_importance = multilabel_methods[multilabel_type]
     else:
-        calc_feature_importance = lambda coef: np.abs(coef).ravel()
+        def calc_feature_importance(coef):
+            return np.abs(coef).ravel()
 
     feature_importance = calc_feature_importance(classifier.coef_)
 

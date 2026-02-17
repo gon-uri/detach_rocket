@@ -1,9 +1,8 @@
-import pytest
 import numpy as np
-from sktime.transformations.panel.rocket import Rocket
-from sklearn.datasets import make_classification
+import pytest
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import RidgeClassifierCV
+from sktime.transformations.panel.rocket import Rocket
+
 from detach_rocket.detach_classes import DetachRocket
 from detach_rocket.pruner import PrunedRocket, get_transformer_pruner
 
@@ -28,6 +27,7 @@ def data():
         "y_val": y_val,
     }
 
+
 @pytest.fixture(scope="function")
 def detach_rocket():
     pytest.importorskip("numba")
@@ -38,9 +38,10 @@ def detach_rocket():
         transformer=rocket_transformer,
         # trade_off=0.1,
         set_percentage=50,  # Fixed pruning percentage
-        verbose=True
+        verbose=True,
     )
     return detach_rocket
+
 
 # def test_fit_with_fixed_pruning(data):
 #     """Test the fit function with a fixed pruning percentage."""
@@ -74,8 +75,8 @@ def test_fit_with_optimal_pruning(detach_rocket, data):
     assert detach_rocket.selected_step_index_ >= 0, "Max index should be non-negative"
     assert detach_rocket.selected_ratio_ >= 0, "Max percentage should be non-negative"
 
-def test_rocket_pruner(detach_rocket, data):
 
+def test_rocket_pruner(detach_rocket, data):
     """Test that the pruned transformer is correctly created."""
 
     # Call fit to initialize the pruned transformer
@@ -84,11 +85,11 @@ def test_rocket_pruner(detach_rocket, data):
     # Assert that the pruned transformer is an instance of PrunedRocket
     pruned_transformer = detach_rocket.pruned_transformer_
     assert isinstance(pruned_transformer, PrunedRocket), "Pruned transformer should be a Rocket instance"
-    
+
     # Assert that the pruned transformer has the correct number of kernels
     retained_num_kernels = np.sum(detach_rocket.feature_mask_[0::2] | detach_rocket.feature_mask_[1::2])
     assert pruned_transformer.num_kernels == retained_num_kernels, "Pruned transformer kernel count mismatch"
-    
+
     # Ensure that pruned transformer can transform data
     pruned_features = pruned_transformer.transform(data["X_train"])
     assert pruned_features.shape[1] == np.sum(detach_rocket.feature_mask_), "Pruned features shape mismatch"
