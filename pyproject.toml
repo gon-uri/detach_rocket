@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+# ---------------------------------------------------------------------------
+# Project metadata (PEP 621)
+# ---------------------------------------------------------------------------
+[project]
+name = "detach_rocket"
+version = "0.1.0"
+description = "Sequential Feature Detachment for Random Convolutional Kernel models."
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = ">=3.10"
+authors = [
+    { name = "Gonzalo Uribarri" },
+    { name = "Federico Barone" },
+]
+keywords = ["time-series", "classification", "feature-selection", "rocket", "machine-learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# -- Runtime dependencies ---------------------------------------------------
+dependencies = [
+    "numpy>=1.23",
+    "scikit-learn>=1.3",
+    "sktime>=0.30",
+    "numba>=0.58",
+]
+
+# -- Optional dependency groups ---------------------------------------------
+[project.optional-dependencies]
+# GPU-accelerated ensemble model (DetachEnsemble / PytorchMiniRocketMultivariate)
+torch = ["torch>=2.0"]
+# Dataset download utilities (utils_datasets.py)
+datasets = ["scipy>=1.10", "pyts>=0.13"]
+# Development / testing
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+# Install everything
+all = [
+    "detach_rocket[torch,datasets,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/gon-uri/detach_rocket"
+Repository = "https://github.com/gon-uri/detach_rocket"
+Issues = "https://github.com/gon-uri/detach_rocket/issues"
+
+# ---------------------------------------------------------------------------
+# Tool configuration
+# ---------------------------------------------------------------------------
+
+[tool.setuptools.packages.find]
+include = ["detach_rocket*"]
+exclude = ["tests*", "examples*", "logo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]

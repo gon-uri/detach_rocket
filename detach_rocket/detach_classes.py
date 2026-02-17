@@ -48,13 +48,18 @@ class BaseDetach:
         full model is reused.
     verbose : bool, default=False
         If *True*, print progress messages during fitting.
+    multilabel_type : str, default="norm"
+        Method to aggregate multi-class Ridge coefficients into a single
+        feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
+        (L∞), or ``"avg"`` (L1).
     """
 
-    def __init__(self, trade_off=0.1, set_percentage=None, recompute_alpha=False, verbose=False):
+    def __init__(self, trade_off=0.1, set_percentage=None, recompute_alpha=False, verbose=False, multilabel_type="norm"):
         self.trade_off = trade_off
         self.set_percentage = set_percentage
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
+        self.multilabel_type = multilabel_type
 
         # Learned attributes (set during fit)
         self.is_fitted_ = False
@@ -71,6 +76,8 @@ class BaseDetach:
         self.selected_step_index_ = None
         self.selected_ratio_ = None
         self.feature_mask_ = None
+        self.labels_ = None
+        self.acc_train_ = None
 
     # -- Utility helpers -----------------------------------------------------
 
@@ -173,6 +180,103 @@ class BaseDetach:
         """
         raise NotImplementedError
 
+    # -- Pruning step selection -----------------------------------------------
+
+    def _select_pruning_step(self):
+        """Set ``selected_step_index_`` and ``selected_ratio_`` from the SFD curve."""
+        if self.set_percentage is None:
+            self._log("Finding the optimal pruning level")
+            self.selected_step_index_, self.selected_ratio_ = select_optimal_pruning(
+                self.retained_ratios_, self.val_scores_,
+                trade_off=self.trade_off,
+            )
+        else:
+            self._log(f"Using fixed percentage for pruning: {self.set_percentage}%")
+            self.selected_step_index_ = int(
+                (np.abs(self.retained_ratios_ - self.set_percentage / 100)).argmin()
+            )
+            self.selected_ratio_ = self.retained_ratios_[self.selected_step_index_]
+
+    # -- Post-fit retraining -------------------------------------------------
+
+    def _retrain_at_step(self, step_index):
+        """Retrain the classifier at the given SFD step.
+
+        Sets ``selected_step_index_``, ``selected_ratio_``,
+        ``feature_mask_``, ``classifier_``, and ``acc_train_``.
+        Subclasses may override to perform additional work (e.g.
+        rebuilding a pruned transformer).
+
+        Parameters
+        ----------
+        step_index : int
+            Index into the SFD curve arrays.
+        """
+        self.selected_step_index_ = step_index
+        self.selected_ratio_ = self.retained_ratios_[step_index]
+
+        alpha_optimal = None if self.recompute_alpha else self.full_model_alpha_
+        self.feature_mask_ = self.importance_matrix_[step_index] > 0
+
+        self.classifier_, self.acc_train_ = retrain_optimal_model(
+            self.feature_mask_,
+            self.feature_matrix_,
+            self.labels_,
+            step_index,
+            alpha_optimal,
+            verbose=self.verbose,
+        )
+
+    def fit_trade_off(self, trade_off=None):
+        """Select the optimal pruning level using a trade-off criterion.
+
+        Can be called after :meth:`fit` to re-select the pruning level
+        with a different ``trade_off`` value without re-running SFD.
+
+        Parameters
+        ----------
+        trade_off : float
+            Trade-off weight between compression and accuracy.
+
+        Returns
+        -------
+        self
+        """
+        if trade_off is None:
+            raise ValueError("trade_off argument is required.")
+        self._require_fitted()
+
+        max_index, _ = select_optimal_pruning(
+            self.retained_ratios_,
+            self.val_scores_,
+            trade_off=trade_off,
+        )
+        self._retrain_at_step(max_index)
+        return self
+
+    def fit_set_optimal(self, set_percentage=None):
+        """Select the pruning level by a fixed percentage.
+
+        Can be called after :meth:`fit` to re-select the pruning level
+        with a different ``set_percentage`` without re-running SFD.
+
+        Parameters
+        ----------
+        set_percentage : float
+            Percentage of features to retain (e.g. ``50`` means 50 %).
+
+        Returns
+        -------
+        self
+        """
+        if set_percentage is None:
+            raise ValueError("set_percentage argument is required.")
+        self._require_fitted()
+
+        step_index = int((np.abs(self.retained_ratios_ - set_percentage / 100)).argmin())
+        self._retrain_at_step(step_index)
+        return self
+
     # -- Summary -------------------------------------------------------------
 
     def get_summary(self):
@@ -225,11 +329,8 @@ class BaseDetach:
         return summary
 
     def _get_train_score(self):
-        """Return the training score at the selected step.
-
-        Subclasses may override to change how this is retrieved.
-        """
-        return float(self.train_scores_[self.selected_step_index_])
+        """Return the training accuracy from the retrained optimal model."""
+        return float(self.acc_train_) if self.acc_train_ is not None else None
 
 
 class DetachRocket(BaseDetach):
@@ -256,6 +357,10 @@ class DetachRocket(BaseDetach):
         Whether to re-estimate Ridge alpha by CV after pruning.
     verbose : bool, default=False
         Print progress messages during fitting.
+    multilabel_type : str, default="norm"
+        Method to aggregate multi-class Ridge coefficients into a single
+        feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
+        (L∞), or ``"avg"`` (L1).
 
     Attributes
     ----------
@@ -309,12 +414,14 @@ class DetachRocket(BaseDetach):
         set_percentage=None,
         recompute_alpha=False,
         verbose=False,
+        multilabel_type="norm",
     ):
         super().__init__(
             trade_off=trade_off,
             set_percentage=set_percentage,
             recompute_alpha=recompute_alpha,
             verbose=verbose,
+            multilabel_type=multilabel_type,
         )
         self.transformer = transformer
 
@@ -322,6 +429,7 @@ class DetachRocket(BaseDetach):
         self.fit_params_ = None
         self.pruned_transformer_ = None
         self.pruned_feature_matrix_ = None
+        self._X_train_raw_ = None
 
     # -- Input preparation (BaseDetach hooks) --------------------------------
 
@@ -373,7 +481,9 @@ class DetachRocket(BaseDetach):
             Validation labels.
         **kwargs
             Extra keyword arguments forwarded to
-            :func:`~detach_rocket.sfd.feature_detachment`.
+            :func:`~detach_rocket.sfd.feature_detachment` (e.g.
+            ``drop_ratio``, ``num_steps``).  ``verbose`` and
+            ``multilabel_type`` are already passed from ``self``.
 
         Returns
         -------
@@ -381,6 +491,7 @@ class DetachRocket(BaseDetach):
         """
         self._validate_inputs(X, y, X_val, y_val)
 
+        self._X_train_raw_ = X
         self.scaler_ = StandardScaler(with_mean=True)
 
         self._log("Applying Data Transformation")
@@ -411,42 +522,32 @@ class DetachRocket(BaseDetach):
             X_test=self.feature_matrix_val_ if use_validation else None,
             y_train=y,
             y_test=y_val if use_validation else None,
+            verbose=self.verbose,
+            multilabel_type=self.multilabel_type,
             **kwargs
         )
         
-        # Decide on the pruning level
-        if self.set_percentage is None:
-            self._log("Finding the optimal pruning level")
-            self.selected_step_index_, self.selected_ratio_ = select_optimal_pruning(
-                self.retained_ratios_, self.val_scores_, trade_off=self.trade_off
-            )
-        else:
-            self._log(f"Using fixed percentage for pruning: {self.set_percentage}%")
-            self.selected_step_index_ = (np.abs(self.retained_ratios_ - self.set_percentage / 100)).argmin()
-            self.selected_ratio_ = self.retained_ratios_[self.selected_step_index_]
-
-        # Retrain the model with the optimal pruning level
-        self._log("Retraining the model with the optimal pruning level")
-        self.feature_mask_ = self.importance_matrix_[self.selected_step_index_] > 0
+        self.labels_ = y
         
-        self._log("Initializing pruned transformer with the selected features")
-        pruner = get_transformer_pruner(self.transformer)
-        self.pruned_transformer_ = pruner.prune_transformer(self.transformer, self.feature_mask_)
-
-        # Transform the data into the pruned feature space
-        self.pruned_feature_matrix_ = self._prepare_X(X)
-        
-        if self.recompute_alpha:
-            cv_classifier = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
-            cv_classifier.fit(self.pruned_feature_matrix_, y)
-            self.classifier_ = RidgeClassifier(alpha=cv_classifier.alpha_)
-        else:
-            self.classifier_ = RidgeClassifier(alpha=self.full_model_alpha_)
-
-        self.classifier_.fit(self.pruned_feature_matrix_, y)
+        # Decide on the pruning level and retrain
+        self._select_pruning_step()
+        self._retrain_at_step(self.selected_step_index_)
         self.is_fitted_ = True
 
         return self
+
+    def _retrain_at_step(self, step_index):
+        """Retrain the classifier and rebuild the pruned transformer.
+
+        Extends the base implementation to also rebuild the pruned
+        transformer from the updated feature mask.
+        """
+        super()._retrain_at_step(step_index)
+
+        self._log("Initializing pruned transformer with the selected features")
+        pruner = get_transformer_pruner(self.transformer)
+        self.pruned_transformer_ = pruner.prune_transformer(self.transformer, self.feature_mask_)
+        self.pruned_feature_matrix_ = self._prepare_X(self._X_train_raw_)
 
     def get_summary(self):
         """Return a dictionary summarizing the fitted model.
@@ -485,7 +586,7 @@ class DetachMatrix(BaseDetach):
         explicit validation set is provided.
     verbose : bool, default=False
         Print progress messages during fitting.
-    multilabel_type : str, default="max"
+    multilabel_type : str, default="norm"
         Method to aggregate multi-class Ridge coefficients into a single
         feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
         (L∞), or ``"avg"`` (L1).
@@ -504,12 +605,18 @@ class DetachMatrix(BaseDetach):
         Regularization alpha selected on the full model.
     feature_mask_ : np.ndarray of bool
         Boolean mask indicating which features are retained.
+    feature_matrix_ : np.ndarray
+        Scaled training feature matrix, stored for post-fit retraining
+        via :meth:`fit_trade_off` and :meth:`fit_set_optimal`.
+    labels_ : np.ndarray
+        Training labels, stored for post-fit retraining.
     retained_ratios_ : np.ndarray
         Proportion of features retained at each SFD step.
     train_scores_ : np.ndarray
         Training accuracy at each SFD step.
     val_scores_ : np.ndarray or None
-        Validation accuracy at each SFD step.
+        Validation accuracy at each SFD step (``None`` when
+        ``set_percentage`` is used without a validation set).
     importance_matrix_ : np.ndarray
         Feature importance values at each SFD step.
     selected_step_index_ : int
@@ -537,7 +644,7 @@ class DetachMatrix(BaseDetach):
         recompute_alpha=False,
         val_ratio=0.33,
         verbose=False,
-        multilabel_type="max",
+        multilabel_type="norm",
         set_percentage=None,
     ):
         super().__init__(
@@ -545,14 +652,9 @@ class DetachMatrix(BaseDetach):
             set_percentage=set_percentage,
             recompute_alpha=recompute_alpha,
             verbose=verbose,
+            multilabel_type=multilabel_type,
         )
         self.val_ratio = val_ratio
-        self.multilabel_type = multilabel_type
-
-        # DetachMatrix-specific learned attributes
-        self.acc_train_ = None
-        self.labels_ = None
-        self.optimal_computed_ = False
 
     # -- Input preparation (BaseDetach hooks) --------------------------------
 
@@ -564,9 +666,20 @@ class DetachMatrix(BaseDetach):
         """Scale *X* using the fitted scaler (no masking)."""
         return self.scaler_.transform(self._to_numpy(X))
 
+    # -- Validation ----------------------------------------------------------
+
+    def _validate_inputs(self, y, X_val, y_val):
+        """Validate fit arguments before proceeding."""
+        if y is None:
+            raise ValueError("Labels are required to fit DetachMatrix.")
+        if X_val is not None and y_val is None:
+            raise ValueError("y_val is required when X_val is provided.")
+        if self.set_percentage is not None and X_val is not None:
+            self._log("Warning: X_val provided but ignored when set_percentage is set.")
+
     # -- Fit -----------------------------------------------------------------
 
-    def fit(self, X, y=None, X_val=None, y_val=None, X_test=None, y_test=None):
+    def fit(self, X, y=None, X_val=None, y_val=None, **kwargs):
         """Fit the DetachMatrix model.
 
         Parameters
@@ -576,39 +689,32 @@ class DetachMatrix(BaseDetach):
         y : array-like of shape (n_instances,)
             Training labels.
         X_val : array-like or None, default=None
-            Validation feature matrix.  Required when ``set_percentage``
-            is *None* and no auto-split is desired.
+            Validation feature matrix.  When ``set_percentage`` is
+            *None* and *X_val* is not provided, the training data is
+            auto-split using ``val_ratio``.
         y_val : array-like or None, default=None
             Validation labels.
-        X_test : array-like or None, default=None
-            Test feature matrix.  Only used when ``set_percentage`` is set,
-            for computing the SFD curve for diagnostics.
-        y_test : array-like or None, default=None
-            Test labels (paired with *X_test*).
+        **kwargs
+            Extra keyword arguments forwarded to
+            :func:`~detach_rocket.sfd.feature_detachment` (e.g.
+            ``drop_ratio``, ``num_steps``).  ``verbose`` and
+            ``multilabel_type`` are already passed from ``self``.
 
         Returns
         -------
         self
         """
+        self._validate_inputs(y, X_val, y_val)
 
-        if y is None:
-            raise ValueError("Labels are required to fit DetachMatrix.")
-
-        self.feature_matrix_ = X
         self.labels_ = y
 
         self._log('Fitting Full Model')
 
-        # scale feature matrix
+        # Scale feature matrix
         self.scaler_ = StandardScaler(with_mean=True)
-        self.feature_matrix_ = self.scaler_.fit_transform(self.feature_matrix_)
+        self.feature_matrix_ = self.scaler_.fit_transform(X)
 
-        # scale validation set (if provided) with the same scaler
-        if X_val is not None:
-            self.feature_matrix_val_ = self.scaler_.transform(X_val)
-
-
-        # Train full rocket as baseline
+        # Train full model as baseline
         self.full_classifier_ = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
         self.full_classifier_.fit(self.feature_matrix_, y)
         self.full_model_alpha_ = self.full_classifier_.alpha_
@@ -618,182 +724,53 @@ class DetachMatrix(BaseDetach):
         self._log('Train Accuracy Full Features: {:.2f}%'.format(100 * self.full_classifier_.score(self.feature_matrix_, y)))
         self._log('-------------------------')
 
-
-        # If fixed percentage is not provided, we set the number of features using the validation set
-        if self.set_percentage is None:
-            
-            if X_test is not None:
-                raise ValueError("X_test is not allowed when using trade-off. SFD curves are computed with a validation set.")
-
-            if X_val is not None:
-                if y_val is None:
-                    raise ValueError("y_val is required when X_val is provided.")
-                X_train = self.feature_matrix_
-                X_val_scaled = self.feature_matrix_val_
-                y_train = y
-            else:
-            # Train-Validation split
-                X_train, X_val_scaled, y_train, y_val = train_test_split(self.feature_matrix_,
-                                                                    y,
-                                                                    test_size=self.val_ratio,
-                                                                    random_state=42,
-                                                                    stratify=y)
-
-            # Train model for selected features
-            sfd_classifier = RidgeClassifier(alpha=self.full_model_alpha_)
-            sfd_classifier.fit(X_train, y_train)
-
-            # Feature Detachment
-            self._log('Applying Sequential Feature Detachment')
-
-            self.retained_ratios_, self.train_scores_, self.val_scores_, self.importance_matrix_ = feature_detachment(
-                sfd_classifier,
-                X_train=X_train,
-                y_train=y_train,
-                X_test=X_val_scaled,
-                y_test=y_val,
-                verbose=self.verbose,
-                multilabel_type=self.multilabel_type,
-            )
-
-            self.is_fitted_ = True
-
-            # Training Optimal Model
-            self._log('Training Optimal Model')
-            
-            self.fit_trade_off(self.trade_off)
-
-        # If fixed percentage is provided, no validation set is required
+        # Determine SFD split
+        if self.set_percentage is not None:
+            # Fixed percentage: SFD on full training data, no test scores
+            X_sfd_train = self.feature_matrix_
+            y_sfd_train = y
+            X_sfd_test = None
+            y_sfd_test = None
+        elif X_val is not None:
+            # Explicit validation set
+            X_sfd_train = self.feature_matrix_
+            y_sfd_train = y
+            X_sfd_test = self.scaler_.transform(X_val)
+            y_sfd_test = y_val
+            self.feature_matrix_val_ = X_sfd_test
         else:
-            if X_val is not None:
-                raise ValueError("Validation set is not allowed when using fixed percentage of features, since it is not required for training.")
-            if X_test is None:
-                raise ValueError("X_test is required to fit DetachMatrix with fixed percentage. It is not used for training, but for plotting the feature detachment curve.")
-            if y_test is None:
-                raise ValueError("y_test is required to fit DetachMatrix with fixed percentage. It is not used for training, but for plotting the feature detachment curve.")
-
-            # We don't need to split the data into train and validation
-            # We are using a fixed percentage of features
-            X_train = self.feature_matrix_
-            y_train = y
-            X_test = self.scaler_.transform(X_test)
-
-            # Train model for selected features
-            sfd_classifier = RidgeClassifier(alpha=self.full_model_alpha_)
-            sfd_classifier.fit(X_train, y_train)
-
-            # Feature Detachment
-            self._log('Applying Sequential Feature Detachment')
-
-            self.retained_ratios_, self.train_scores_, self.val_scores_, self.importance_matrix_ = feature_detachment(
-                sfd_classifier,
-                X_train=X_train,
-                y_train=y_train,
-                X_test=X_test,
-                y_test=y_test,
-                verbose=self.verbose,
-                multilabel_type=self.multilabel_type,
+            # Auto-split using val_ratio
+            X_sfd_train, X_sfd_test, y_sfd_train, y_sfd_test = train_test_split(
+                self.feature_matrix_, y,
+                test_size=self.val_ratio,
+                random_state=42,
+                stratify=y,
             )
 
-            self.is_fitted_ = True
+        # Run SFD
+        sfd_classifier = RidgeClassifier(alpha=self.full_model_alpha_)
+        sfd_classifier.fit(X_sfd_train, y_sfd_train)
 
-            self._log('Using fixed percentage of features')
-            self.fit_set_optimal(self.set_percentage)
+        self._log('Applying Sequential Feature Detachment')
+
+        self.retained_ratios_, self.train_scores_, self.val_scores_, self.importance_matrix_ = feature_detachment(
+            sfd_classifier,
+            X_train=X_sfd_train,
+            y_train=y_sfd_train,
+            X_test=X_sfd_test,
+            y_test=y_sfd_test,
+            verbose=self.verbose,
+            multilabel_type=self.multilabel_type,
+            **kwargs
+        )
+
+        self.is_fitted_ = True
+
+        # Select pruning level and retrain
+        self._select_pruning_step()
+        self._retrain_at_step(self.selected_step_index_)
 
         return self
-
-    def fit_trade_off(self, trade_off=None):
-        """Select the optimal pruning level using a trade-off criterion.
-
-        Can be called after :meth:`fit` to re-select the pruning level
-        with a different ``trade_off`` value without re-running SFD.
-
-        Parameters
-        ----------
-        trade_off : float
-            Trade-off weight between compression and accuracy.
-        """
-
-        if trade_off is None:
-            raise ValueError("trade_off argument is required.")
-        self._require_fitted()
-
-        # Select optimal
-        max_index, max_percentage = select_optimal_pruning(
-            self.retained_ratios_,
-            self.val_scores_,
-            self.val_scores_[0],
-            trade_off,
-        )
-        self.selected_step_index_ = max_index
-        self.selected_ratio_ = max_percentage
-
-        # Check if alpha will be recomputed
-        if self.recompute_alpha:
-            alpha_optimal = None
-        else:
-            alpha_optimal = self.full_model_alpha_
-
-        # Create feature mask
-        self.feature_mask_ = self.importance_matrix_[max_index] > 0
-
-        # Re-train optimal model
-        self.classifier_, self.acc_train_ = retrain_optimal_model(
-            self.feature_mask_,
-            self.feature_matrix_,
-            self.labels_,
-            max_index,
-            alpha_optimal,
-            verbose=self.verbose,
-        )
-        self.optimal_computed_ = True
-
-        return
-
-    def fit_set_optimal(self, set_percentage=None):
-        """Select the pruning level by a fixed percentage.
-
-        Can be called after :meth:`fit` to re-select the pruning level
-        with a different ``set_percentage`` without re-running SFD.
-
-        Parameters
-        ----------
-        set_percentage : float
-            Percentage of features to retain (e.g. ``50`` means 50 %).
-        """
-
-        if set_percentage is None:
-            raise ValueError("set_percentage argument is required.")
-        self._require_fitted()
-
-        self.selected_step_index_ = (np.abs(self.retained_ratios_ - set_percentage / 100)).argmin()
-        self.selected_ratio_ = self.retained_ratios_[self.selected_step_index_]
-
-        # Check if alpha will be recomputed
-        if self.recompute_alpha:
-            alpha_optimal = None
-        else:
-            alpha_optimal = self.full_model_alpha_
-
-        # Create feature mask
-        self.feature_mask_ = self.importance_matrix_[self.selected_step_index_] > 0
-
-        # Re-train optimal model
-        self.classifier_, self.acc_train_ = retrain_optimal_model(
-            self.feature_mask_,
-            self.feature_matrix_,
-            self.labels_,
-            self.selected_step_index_,
-            alpha_optimal,
-            verbose=self.verbose,
-        )
-        self.optimal_computed_ = True
-        
-        return
-
-    def _get_train_score(self):
-        """Return the training accuracy from the retrained optimal model."""
-        return float(self.acc_train_) if self.acc_train_ is not None else None
 
 
 _TorchModuleBase = torch.nn.Module if torch is not None else object
