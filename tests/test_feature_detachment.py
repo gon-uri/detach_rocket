@@ -7,11 +7,11 @@ from detach_rocket.sfd import feature_detachment
 def test_feature_detachment_with_validation():
     # data
     rng = np.random.default_rng(42)
-    n_samples = 200
-    n_relevant_features = 5
-    n_irrelevant_features = 5
+    n_samples = 150
+    n_relevant_features = 300
+    n_irrelevant_features = 300
     drop_ratio=0.1
-    steps=1/drop_ratio
+    num_steps = 25
 
     X_relevant = rng.standard_normal((n_samples, n_relevant_features))
     X_irrelevant = rng.random((n_samples, n_irrelevant_features))
@@ -28,17 +28,16 @@ def test_feature_detachment_with_validation():
         y_train=y_train,
         y_test=y_val,
         drop_ratio=drop_ratio,
+        num_steps=num_steps,
         verbose=False,
     )
 
-    expected_ratios = np.arange(1, 0, -drop_ratio)
-    np.testing.assert_array_almost_equal(retained_ratios, expected_ratios, decimal=5)
-    assert len(train_scores) == steps, "No training scores calculated"
-    assert len(test_scores) == steps, "Test scores missing steps"
     assert feature_matrix.shape[1] == X.shape[1], "Feature matrix has incorrect number of features"
+    # Check that the number of features retained decreases at each step
+    assert np.all(np.diff(retained_ratios) <= 0), "Retained ratios did not decrease monotonically"
+    # Check that the retrained ratios, train scores, and test scores have the correct length
+    assert len(retained_ratios) == num_steps, "Incorrect length of retained ratios"
+    assert len(train_scores) == num_steps, "Incorrect length of train scores"
+    assert len(test_scores) == num_steps, "Incorrect length of test scores"
     # Feature ranking is data-dependent; by this step most irrelevant features should be pruned.
-    assert np.count_nonzero(feature_matrix[5, 5:]) <= 1, "Irrelevant features were not pruned early enough"
-
-
-# def test_feature_detachment_multilabel():
-    
+    assert np.count_nonzero(feature_matrix[20, n_relevant_features:]) <= 10, "Irrelevant features were not pruned early enough"

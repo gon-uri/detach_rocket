@@ -114,6 +114,3 @@ def test_get_summary(detach_rocket, data):
     assert 0 <= summary["selected_ratio"] <= 1
     assert summary["retained_kernel_count"] == detach_rocket.pruned_transformer_.num_kernels
     assert summary["final_model_alpha"] > 0
-
-
-# check if result is near with threshold  0.001
