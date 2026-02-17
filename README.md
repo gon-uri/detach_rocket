@@ -1,17 +1,19 @@
-<img align="right" src="logo/detach_logo.png" alt="Logo" width="150"/>
-<div id="toc">
-    <ul style="list-style: none;">
-    <summary>
-      <h1>Detach-ROCKET</h1>
-    </summary>
-  </ul>
-</div>
+# Detach-ROCKET
 
-Official repository for [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels](https://link.springer.com/article/10.1007/s10618-024-01062-7) and [Classification of raw MEG/EEG data with detach-rocket ensemble: an improved rocket algorithm for multivariate time series analysis](https://www.arxiv.org/abs/2408.02760).
+<img align="right" src="logo/detach_logo.png" alt="Logo" width="150"/>
+
+Official repository for:
+
+- [Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels](https://link.springer.com/article/10.1007/s10618-024-01062-7)
+- [Classification of raw MEG/EEG data with detach-rocket ensemble: an improved rocket algorithm for multivariate time series analysis](https://www.arxiv.org/abs/2408.02760)
 
 ## Overview
 
-This repository contains Python implementations of Sequential Feature Detachment (SFD) for feature selection and Detach-ROCKET for time-series classification. Developed entirely in Python using primarly NumPy, PyTorch, Scikit-Learn and Sktime libraries, the core functionalities are encapsulated within the following classes:
+This repository contains Python implementations of Sequential Feature
+Detachment (SFD) for feature selection and Detach-ROCKET for time-series
+classification. Developed entirely in Python using primarily NumPy, PyTorch,
+Scikit-Learn and Sktime libraries, the core functionalities are encapsulated
+within the following classes:
 
 - `DetachRocket`: Detach-ROCKET model class. It is constructed by pruning an initial ROCKET, MiniRocket or MultiROCKET model using SFD and selecting the optimal size.
   
