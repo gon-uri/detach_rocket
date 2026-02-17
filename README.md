@@ -134,7 +134,7 @@ Solana, A., Fransén, E., & Uribarri, G. (2024). Classification of raw MEG/EEG d
 ```
 
 *BIBTEX*
-```
+```bibtex
 @article{uribarri2024detach,
   title={Detach-ROCKET: Sequential feature selection for time series classification with random convolutional kernels},
   author={Uribarri, Gonzalo and Barone, Federico and Ansuini, Alessio and Frans{\'e}n, Erik},
