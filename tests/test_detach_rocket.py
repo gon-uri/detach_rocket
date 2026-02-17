@@ -96,11 +96,29 @@ def test_rocket_pruner(detach_rocket, data):
 
 
 def test_invalid_pruning():
-    """Test the case where an invalid pruning condition arises."""
-    # Test that the pruner raises an error for an invalid transformer
-    with pytest.raises(ValueError):
-        pruner = get_transformer_pruner("InvalidTransformer")
-        pruner.prune_transformer(None, np.array([True, False]))
+    """Test that unsupported transformers fall back to generic pruning."""
+    # Create a mock transformer (not a Rocket instance)
+    class MockTransformer:
+        def transform(self, X):
+            # Return a simple dummy transformation (4 features)
+            return np.random.rand(X.shape[0], 4)
+
+    mock_transformer = MockTransformer()
+    feature_mask = np.array([True, False, True, False])
+
+    # Should return a GenericTransformerPruner (no error)
+    pruner = get_transformer_pruner(mock_transformer)
+    pruned = pruner.prune_transformer(mock_transformer, feature_mask)
+
+    # Verify it's a GenericPrunedTransformer
+    from detach_rocket.pruner import GenericPrunedTransformer
+
+    assert isinstance(pruned, GenericPrunedTransformer), "Expected GenericPrunedTransformer fallback"
+
+    # Verify it masks features correctly
+    X_dummy = np.random.rand(10, 5)  # Dummy input
+    X_pruned = pruned.transform(X_dummy)
+    assert X_pruned.shape[1] == 2, "Expected 2 retained features"
 
 
 def test_get_summary(detach_rocket, data):

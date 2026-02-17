@@ -69,6 +69,10 @@ exclude = ["tests*", "examples*", "logo*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::UserWarning:sklearn",
+    "ignore::scipy.linalg.LinAlgWarning",
+]
 
 [tool.ruff]
 target-version = "py310"

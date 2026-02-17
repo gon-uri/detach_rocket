@@ -8,8 +8,28 @@ import numpy as np
 from sktime.transformations.panel.rocket import Rocket
 
 
+def _normalize_feature_mask(feature_mask):
+    """Validate and normalize a boolean feature mask."""
+    mask = np.asarray(feature_mask)
+    if mask.ndim != 1:
+        raise ValueError("optimal_feature_mask must be a 1D boolean array.")
+    if mask.size == 0:
+        raise ValueError("optimal_feature_mask must contain at least one feature.")
+    if mask.dtype != np.bool_:
+        unique_values = np.unique(mask)
+        if np.all(np.isin(unique_values, [0, 1])):
+            mask = mask.astype(bool, copy=False)
+        else:
+            raise ValueError("optimal_feature_mask must contain only boolean (or 0/1) values.")
+    return mask
+
+
 def get_transformer_pruner(transformer):
     """Return the appropriate :class:`TransformerPruner` for *transformer*.
+
+    If a specialized pruner is not available for the transformer type,
+    returns a :class:`GenericTransformerPruner` that wraps the original
+    transformer and applies feature masking at transform time.
 
     Parameters
     ----------
@@ -19,18 +39,13 @@ def get_transformer_pruner(transformer):
     Returns
     -------
     pruner : TransformerPruner
-
-    Raises
-    ------
-    ValueError
-        If no pruner is available for the given transformer type.
     """
     if isinstance(transformer, Rocket):
         return RocketTransformerPruner()
     # elif isinstance(transformer, MiniRocketTransformer):
     #     return MiniRocketTransformerPruner()
     else:
-        raise ValueError(f"No pruner available for transformer type: {type(transformer)}")
+        return GenericTransformerPruner()
 
 
 class PrunedRocket(Rocket):
@@ -88,6 +103,84 @@ class TransformerPruner(ABC):
         """
 
 
+class GenericPrunedTransformer:
+    """Wrapper for any transformer that applies feature masking.
+
+    This is a fallback for transformers that don't have specialized
+    pruning logic.  It keeps the original transformer intact and
+    applies the feature mask during :meth:`transform`.
+
+    Parameters
+    ----------
+    original_transformer : object
+        A fitted transformer (typically from sktime or similar).
+    feature_mask : np.ndarray of bool
+        Boolean mask indicating which output features to retain.
+
+    Attributes
+    ----------
+    num_kernels : int or None
+        Number of retained kernels when known, otherwise ``None`` for
+        generic transformer outputs where kernel semantics are undefined.
+    """
+
+    def __init__(self, original_transformer, feature_mask):
+        self.original_transformer = original_transformer
+        self.feature_mask = _normalize_feature_mask(feature_mask)
+        self.num_kernels = None
+
+    def transform(self, X):
+        """Transform *X* with the original transformer and mask features."""
+        X_transf = self.original_transformer.transform(X)
+        # Handle pandas DataFrame or numpy array
+        if hasattr(X_transf, "to_numpy"):
+            X_transf = X_transf.to_numpy()
+        else:
+            X_transf = np.asarray(X_transf)
+        if X_transf.ndim != 2:
+            raise ValueError(
+                "Fallback pruned transformer expects transform(X) to return a 2D feature matrix."
+            )
+        if X_transf.shape[1] != self.feature_mask.size:
+            raise ValueError(
+                "Feature mask length does not match transformer output width: "
+                f"mask has {self.feature_mask.size} features but transform(X) produced "
+                f"{X_transf.shape[1]}."
+            )
+        return X_transf[:, self.feature_mask]
+
+
+class GenericTransformerPruner(TransformerPruner):
+    """Fallback pruner for transformers without specialized logic.
+
+    Returns a :class:`GenericPrunedTransformer` that wraps the original
+    transformer and applies feature masking.
+    """
+
+    def prune_transformer(self, original_transformer, optimal_feature_mask):
+        """Create a masked wrapper around *original_transformer*.
+
+        Parameters
+        ----------
+        original_transformer : object
+            A fitted transformer.
+        optimal_feature_mask : np.ndarray of bool
+            Boolean mask indicating which features to retain.
+
+        Returns
+        -------
+        pruned_transformer : GenericPrunedTransformer
+        """
+        if original_transformer is None:
+            raise ValueError("Transformer must not be None.")
+        if not callable(getattr(original_transformer, "transform", None)):
+            raise ValueError(
+                "Unsupported transformer for generic fallback: missing callable transform(X)."
+            )
+        mask = _normalize_feature_mask(optimal_feature_mask)
+        return GenericPrunedTransformer(original_transformer, mask)
+
+
 class RocketTransformerPruner(TransformerPruner):
     """Pruner for :class:`~sktime.transformations.panel.rocket.Rocket`.
 
@@ -122,6 +215,14 @@ class RocketTransformerPruner(TransformerPruner):
             raise ValueError("Transformer must be fit before pruning")
 
         num_kernels = original_trf.num_kernels
+        optimal_feature_mask = _normalize_feature_mask(optimal_feature_mask)
+        expected_mask_size = 2 * num_kernels
+        if optimal_feature_mask.size != expected_mask_size:
+            raise ValueError(
+                "Rocket feature mask size mismatch: "
+                f"expected {expected_mask_size} features for {num_kernels} kernels, "
+                f"got {optimal_feature_mask.size}."
+            )
 
         # Precompute number of pruned kernels
         retained_num_kernels = np.sum(optimal_feature_mask[0::2] | optimal_feature_mask[1::2])
