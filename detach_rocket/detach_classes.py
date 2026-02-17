@@ -1,8 +1,9 @@
 """
-DetachRocket end-to-end model class, DetachMatrix class and DetachEnsemble class.
+Detach-ROCKET model classes.
 """
 
-from detach_rocket.utils import (feature_detachment, select_optimal_pruning, retrain_optimal_model)
+from detach_rocket.model_selection import retrain_optimal_model, select_optimal_pruning
+from detach_rocket.sfd import feature_detachment
 from detach_rocket.pruner import get_transformer_pruner
 
 from sklearn.linear_model import (RidgeClassifierCV ,RidgeClassifier)
@@ -14,657 +15,827 @@ from sktime.transformations.panel.rocket import (
 )
 from sklearn.model_selection import train_test_split
 import numpy as np
-import torch
+try:
+    import torch
+except ModuleNotFoundError as exc:
+    torch = None
+    _TORCH_IMPORT_ERROR = exc
+else:
+    _TORCH_IMPORT_ERROR = None
 
-class DetachRocket:
+
+class BaseDetach:
+    """Base class for Detach models.
+
+    Provides shared utilities, learned-attribute initialization, and common
+    ``predict`` / ``score`` / ``score_full`` / ``get_summary`` methods used
+    by both :class:`DetachRocket` and :class:`DetachMatrix`.
+
+    This class is not meant to be instantiated directly.
+
+    Parameters
+    ----------
+    trade_off : float, default=0.1
+        Weight given to model compression when selecting the optimal pruning
+        level.  Higher values favor smaller models.
+    set_percentage : float or None, default=None
+        If set, forces a fixed pruning level (percentage of features to
+        retain, e.g. ``50`` means 50 %).  When not *None*, ``trade_off`` is
+        ignored and no validation set is needed for model selection.
+    recompute_alpha : bool, default=False
+        Whether to re-estimate the Ridge regularization parameter (alpha) by
+        cross-validation after pruning.  If *False*, the alpha found on the
+        full model is reused.
+    verbose : bool, default=False
+        If *True*, print progress messages during fitting.
+    """
+
+    def __init__(self, trade_off=0.1, set_percentage=None, recompute_alpha=False, verbose=False):
+        self.trade_off = trade_off
+        self.set_percentage = set_percentage
+        self.recompute_alpha = recompute_alpha
+        self.verbose = verbose
+
+        # Learned attributes (set during fit)
+        self.is_fitted_ = False
+        self.scaler_ = None
+        self.classifier_ = None
+        self.full_classifier_ = None
+        self.full_model_alpha_ = None
+        self.feature_matrix_ = None
+        self.feature_matrix_val_ = None
+        self.retained_ratios_ = None
+        self.train_scores_ = None
+        self.val_scores_ = None
+        self.importance_matrix_ = None
+        self.selected_step_index_ = None
+        self.selected_ratio_ = None
+        self.feature_mask_ = None
+
+    # -- Utility helpers -----------------------------------------------------
+
+    def _log(self, message):
+        """Print *message* if verbose mode is enabled."""
+        if self.verbose:
+            print(message)
+
+    def _require_fitted(self):
+        """Raise ``ValueError`` if the model has not been fitted yet."""
+        if not self.is_fitted_:
+            raise ValueError("Model not fitted. Call fit method first.")
+
+    @staticmethod
+    def _to_numpy(matrix):
+        """Convert a pandas DataFrame or array-like to a NumPy array."""
+        if hasattr(matrix, "to_numpy"):
+            return matrix.to_numpy()
+        return np.asarray(matrix)
+
+    # -- Inference -----------------------------------------------------------
+
+    def _apply_feature_mask(self, X):
+        """Scale *X* and select retained features.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Raw (unscaled) feature matrix.
+
+        Returns
+        -------
+        X_masked : np.ndarray of shape (n_samples, n_selected_features)
+        """
+        scaled = self.scaler_.transform(self._to_numpy(X))
+        return scaled[:, self.feature_mask_]
+
+    def predict(self, X):
+        """Predict class labels for *X*.
+
+        Parameters
+        ----------
+        X : array-like
+            Input data.  The expected shape depends on the subclass:
+            ``DetachRocket`` expects raw time series, ``DetachMatrix``
+            expects a precomputed feature matrix.
+
+        Returns
+        -------
+        y_pred : np.ndarray of shape (n_samples,)
+        """
+        self._require_fitted()
+        return self.classifier_.predict(self._prepare_X(X))
+
+    def score(self, X, y):
+        """Return the classification accuracy on (*X*, *y*).
+
+        Parameters
+        ----------
+        X : array-like
+            Input data (same format as ``predict``).
+        y : array-like of shape (n_samples,)
+            True labels.
+
+        Returns
+        -------
+        accuracy : float
+        """
+        self._require_fitted()
+        return self.classifier_.score(self._prepare_X(X), y)
+
+    def score_full(self, X, y):
+        """Return accuracy of the *unpruned* full model on (*X*, *y*).
+
+        Parameters
+        ----------
+        X : array-like
+            Input data (same format as ``predict``).
+        y : array-like of shape (n_samples,)
+            True labels.
+
+        Returns
+        -------
+        accuracy : float
+        """
+        self._require_fitted()
+        return self.full_classifier_.score(self._prepare_X_full(X), y)
+
+    def _prepare_X(self, X):
+        """Transform *X* into the pruned feature space for prediction.
+
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError
+
+    def _prepare_X_full(self, X):
+        """Transform *X* into the full (unpruned) feature space.
+
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError
+
+    # -- Summary -------------------------------------------------------------
+
+    def get_summary(self):
+        """Return a dictionary summarizing the fitted model.
+
+        Returns
+        -------
+        summary : dict
+            Keys include ``estimator``, ``is_fitted``, ``selection_mode``,
+            ``trade_off``, ``set_percentage``, ``recompute_alpha``,
+            ``selected_step_index``, ``selected_ratio``,
+            ``selected_feature_ratio``, ``selected_feature_count``,
+            ``full_feature_count``, ``full_model_alpha``,
+            ``final_model_alpha``, ``selected_step_train_score``,
+            ``selected_step_val_score``.  Subclasses may add extra keys.
+        """
+        self._require_fitted()
+
+        selected_feature_count = int(np.sum(self.feature_mask_))
+        full_feature_count = int(self.feature_mask_.size)
+        selected_ratio = (
+            float(selected_feature_count / full_feature_count)
+            if full_feature_count
+            else 0.0
+        )
+
+        summary = {
+            "estimator": type(self).__name__,
+            "is_fitted": True,
+            "selection_mode": (
+                "set_percentage" if self.set_percentage is not None else "trade_off"
+            ),
+            "trade_off": float(self.trade_off),
+            "set_percentage": self.set_percentage,
+            "recompute_alpha": bool(self.recompute_alpha),
+            "selected_step_index": int(self.selected_step_index_),
+            "selected_ratio": float(self.selected_ratio_),
+            "selected_feature_ratio": selected_ratio,
+            "selected_feature_count": selected_feature_count,
+            "full_feature_count": full_feature_count,
+            "full_model_alpha": float(self.full_model_alpha_),
+            "final_model_alpha": float(self.classifier_.alpha),
+            "selected_step_train_score": self._get_train_score(),
+            "selected_step_val_score": (
+                None
+                if self.val_scores_ is None
+                else float(self.val_scores_[self.selected_step_index_])
+            ),
+        }
+        return summary
+
+    def _get_train_score(self):
+        """Return the training score at the selected step.
+
+        Subclasses may override to change how this is retrieved.
+        """
+        return float(self.train_scores_[self.selected_step_index_])
+
+
+class DetachRocket(BaseDetach):
+    """End-to-end Detach-ROCKET model for time-series classification.
+
+    Transforms raw time series via a ROCKET-family transformer, applies
+    Sequential Feature Detachment (SFD) to prune features, selects the
+    optimal model size, and retrains a ``RidgeClassifier`` on the pruned
+    feature set.
+
+    Parameters
+    ----------
+    transformer : sktime transformer
+        A fitted-or-unfitted ROCKET-family transformer (e.g.
+        ``Rocket``, ``MiniRocketMultivariate``,
+        ``MultiRocketMultivariate``).
+    trade_off : float, default=0.1
+        Weight given to model compression when selecting the optimal
+        pruning level.
+    set_percentage : float or None, default=None
+        If set, forces a fixed pruning level (percentage of features to
+        retain).  When not *None*, ``trade_off`` is ignored.
+    recompute_alpha : bool, default=False
+        Whether to re-estimate Ridge alpha by CV after pruning.
+    verbose : bool, default=False
+        Print progress messages during fitting.
+
+    Attributes
+    ----------
+    is_fitted_ : bool
+        Whether the model has been fitted.
+    scaler_ : StandardScaler
+        Scaler fitted on the full training feature matrix.
+    classifier_ : RidgeClassifier
+        Final classifier trained on the pruned feature set.
+    full_classifier_ : RidgeClassifierCV
+        Classifier trained on the full (unpruned) feature set.
+    full_model_alpha_ : float
+        Regularization alpha selected on the full model.
+    feature_mask_ : np.ndarray of bool
+        Boolean mask indicating which features are retained.
+    pruned_transformer_ : PrunedRocket
+        Transformer that directly produces only the retained features.
+    retained_ratios_ : np.ndarray
+        Proportion of features retained at each SFD step.
+    train_scores_ : np.ndarray
+        Training accuracy at each SFD step.
+    val_scores_ : np.ndarray or None
+        Validation accuracy at each SFD step.
+    importance_matrix_ : np.ndarray
+        Feature importance values at each SFD step.
+    selected_step_index_ : int
+        Index of the selected SFD step.
+    selected_ratio_ : float
+        Proportion of features retained at the selected step.
+
+    Examples
+    --------
+    >>> from sktime.transformations.panel.rocket import Rocket
+    >>> from detach_rocket.detach_classes import DetachRocket
+    >>> rocket = Rocket(num_kernels=10_000)
+    >>> model = DetachRocket(transformer=rocket, trade_off=0.1)
+    >>> model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+    >>> y_pred = model.predict(X_test)
+
+    References
+    ----------
+    .. [1] Uribarri et al. (2024), *Detach-ROCKET: Sequential feature
+       selection for time series classification with random convolutional
+       kernels*, Data Mining and Knowledge Discovery.
+    """
+
     def __init__(
         self,
         transformer,
         trade_off=0.1,
         set_percentage=None,
-        recompute_alpha=None,
-        verbose=False
-        ):
-        self._transformer = transformer
-        self._classifier = RidgeClassifier()
-        self._scaler = StandardScaler(with_mean=True)
-        self._feature_matrix = None
-        self._feature_matrix_val = None
-        self._trade_off = trade_off
-        self._set_percentage = set_percentage
-        self._recompute_alpha = recompute_alpha
-        self._full_model_alpha = None
-        self._verbose = verbose
-    
-    def log(self, message):
-        if self._verbose:
-            print(message)
+        recompute_alpha=False,
+        verbose=False,
+    ):
+        super().__init__(
+            trade_off=trade_off,
+            set_percentage=set_percentage,
+            recompute_alpha=recompute_alpha,
+            verbose=verbose,
+        )
+        self.transformer = transformer
+
+        # DetachRocket-specific learned attributes
+        self.fit_params_ = None
+        self.pruned_transformer_ = None
+        self.pruned_feature_matrix_ = None
+
+    # -- Input preparation (BaseDetach hooks) --------------------------------
+
+    def _prepare_X(self, X):
+        """Transform raw time series into the pruned feature space."""
+        transformed = self.pruned_transformer_.transform(X)
+        return self._to_numpy(transformed)
+
+    def _prepare_X_full(self, X):
+        """Transform raw time series into the full (unpruned) feature space."""
+        transformed = self._to_numpy(self.transformer.transform(X))
+        return self.scaler_.transform(transformed)
+
+    # -- Validation ----------------------------------------------------------
 
     def _validate_inputs(self, X, y, X_val, y_val):
         if X is None or y is None:
             raise ValueError("Training data (X, y) is required.")
 
-        if self._set_percentage is None and (X_val is None or y_val is None):
+        if self.set_percentage is None and (X_val is None or y_val is None):
             raise ValueError("Validation data (X_val, y_val) is required for calculating optimal pruning.")
         
-        if self._set_percentage is not None and (X_val is not None or y_val is not None):
-            self.log("Warning: Validation set provided but will be ignored as set_percentage is set.")
+        if self.set_percentage is not None and (X_val is not None or y_val is not None):
+            self._log("Warning: Validation set provided but will be ignored as set_percentage is set.")
 
-        if self._set_percentage is not None:
-            self.log("Warning: Using fixed percentage for pruning. trade_off will be ignored.")
+        if self.set_percentage is not None:
+            self._log("Warning: Using fixed percentage for pruning. trade_off will be ignored.")
             
     def fit(self, X, y=None, X_val=None, y_val=None, **kwargs):
-        
+        """Fit the DetachRocket model.
+
+        Transforms *X* using the ROCKET transformer, runs Sequential Feature
+        Detachment (SFD) to obtain an accuracy-vs-size curve, selects the
+        optimal pruning level, and retrains a ``RidgeClassifier`` on the
+        pruned features.
+
+        Parameters
+        ----------
+        X : array-like
+            Training time series.  Shape ``(n_instances, n_timepoints)`` for
+            univariate or ``(n_instances, n_channels, n_timepoints)`` for
+            multivariate data.
+        y : array-like of shape (n_instances,)
+            Training labels.
+        X_val : array-like or None, default=None
+            Validation time series (same shape convention as *X*).  Required
+            when ``set_percentage`` is *None*.
+        y_val : array-like or None, default=None
+            Validation labels.
+        **kwargs
+            Extra keyword arguments forwarded to
+            :func:`~detach_rocket.sfd.feature_detachment`.
+
+        Returns
+        -------
+        self
+        """
         self._validate_inputs(X, y, X_val, y_val)
 
-        self.log("Applying Data Transformation")
-        self._feature_matrix = self._transformer.fit_transform(X)
-        self._feature_matrix = self._scaler.fit_transform(self._feature_matrix)
+        self.scaler_ = StandardScaler(with_mean=True)
 
-        if X_val is not None:
-            self._feature_matrix_val = self._transformer.transform(X_val)
-            self._feature_matrix_val = self._scaler.transform(self._feature_matrix_val)
+        self._log("Applying Data Transformation")
+        self.feature_matrix_ = self._to_numpy(self.transformer.fit_transform(X))
+        self.feature_matrix_ = self.scaler_.fit_transform(self.feature_matrix_)
 
-        self._fit_params = kwargs
+        use_validation = self.set_percentage is None and X_val is not None and y_val is not None
 
-        self.log("Fitting Full Model")
+        if use_validation:
+            self.feature_matrix_val_ = self._to_numpy(self.transformer.transform(X_val))
+            self.feature_matrix_val_ = self.scaler_.transform(self.feature_matrix_val_)
+        else:
+            self.feature_matrix_val_ = None
+
+        self.fit_params_ = kwargs
+
+        self._log("Fitting Full Model")
         full_classifier = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
-        full_classifier.fit(self._feature_matrix, y)
-        self._full_model_alpha = full_classifier.alpha_
+        full_classifier.fit(self.feature_matrix_, y)
+        self.full_classifier_ = full_classifier
+        self.full_model_alpha_ = full_classifier.alpha_
         
-        self._classifier = RidgeClassifier(alpha=self._full_model_alpha)
+        self.classifier_ = RidgeClassifier(alpha=self.full_model_alpha_)
         
-        self._retained_ratios, self._train_scores, self._val_scores, self._importance_matrix = feature_detachment(
-            self._classifier,
-            self._feature_matrix,
-            X_test=self._feature_matrix_val,
+        self.retained_ratios_, self.train_scores_, self.val_scores_, self.importance_matrix_ = feature_detachment(
+            self.classifier_,
+            self.feature_matrix_,
+            X_test=self.feature_matrix_val_ if use_validation else None,
             y_train=y,
-            y_test=y_val,
+            y_test=y_val if use_validation else None,
             **kwargs
         )
         
         # Decide on the pruning level
-        if self._set_percentage is None:
-            self.log("Finding the optimal pruning level")
-            self._max_index, self._max_percentage = select_optimal_pruning(
-                self._retained_ratios, self._val_scores, trade_off=self._trade_off
+        if self.set_percentage is None:
+            self._log("Finding the optimal pruning level")
+            self.selected_step_index_, self.selected_ratio_ = select_optimal_pruning(
+                self.retained_ratios_, self.val_scores_, trade_off=self.trade_off
             )
         else:
-            self.log(f"Using fixed percentage for pruning: {self._set_percentage}%")
-            self._max_index = (np.abs(self._retained_ratios - self._set_percentage / 100)).argmin()
-            self._max_percentage = self._retained_ratios[self._max_index]
+            self._log(f"Using fixed percentage for pruning: {self.set_percentage}%")
+            self.selected_step_index_ = (np.abs(self.retained_ratios_ - self.set_percentage / 100)).argmin()
+            self.selected_ratio_ = self.retained_ratios_[self.selected_step_index_]
 
         # Retrain the model with the optimal pruning level
-        self.log("Retraining the model with the optimal pruning level")
-        self._optimal_feature_mask = self._importance_matrix[self._max_index] > 0
+        self._log("Retraining the model with the optimal pruning level")
+        self.feature_mask_ = self.importance_matrix_[self.selected_step_index_] > 0
         
-        self.log("Initializing pruned transformer with the selected features")
-        pruner = get_transformer_pruner(self._transformer)
-        self._pruned_transformer = pruner.prune_transformer(self._transformer, self._optimal_feature_mask)
+        self._log("Initializing pruned transformer with the selected features")
+        pruner = get_transformer_pruner(self.transformer)
+        self.pruned_transformer_ = pruner.prune_transformer(self.transformer, self.feature_mask_)
 
         # Transform the data into the pruned feature space
-        self._pruned_feature_matrix = self._pruned_transformer.transform(X)
+        self.pruned_feature_matrix_ = self._prepare_X(X)
         
-        if self._recompute_alpha:
-            self._classifier = RidgeClassifierCV()
-            self._classifier.fit(self._pruned_feature_matrix, y)
+        if self.recompute_alpha:
+            cv_classifier = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
+            cv_classifier.fit(self.pruned_feature_matrix_, y)
+            self.classifier_ = RidgeClassifier(alpha=cv_classifier.alpha_)
+        else:
+            self.classifier_ = RidgeClassifier(alpha=self.full_model_alpha_)
+
+        self.classifier_.fit(self.pruned_feature_matrix_, y)
+        self.is_fitted_ = True
 
         return self
 
-class DetachRocket_og:
+    def get_summary(self):
+        """Return a dictionary summarizing the fitted model.
 
+        Extends the base summary with ``retained_kernel_count``.
+
+        Returns
+        -------
+        summary : dict
+        """
+        summary = super().get_summary()
+        summary["retained_kernel_count"] = int(self.pruned_transformer_.num_kernels)
+        return summary
+
+
+class DetachMatrix(BaseDetach):
+    """Detach model that operates on precomputed feature matrices.
+
+    Applies Sequential Feature Detachment (SFD) directly to a feature
+    matrix of shape ``(n_instances, n_features)`` — useful when features
+    have already been extracted by an external pipeline (e.g. tsfresh,
+    catch22, or a pre-fitted ROCKET transformer).
+
+    Parameters
+    ----------
+    trade_off : float, default=0.1
+        Weight given to model compression when selecting the optimal
+        pruning level.
+    set_percentage : float or None, default=None
+        If set, forces a fixed pruning level (percentage of features to
+        retain).  When not *None*, ``trade_off`` is ignored.
+    recompute_alpha : bool, default=False
+        Whether to re-estimate Ridge alpha by CV after pruning.
+    val_ratio : float, default=0.33
+        Fraction of the training data used for validation when no
+        explicit validation set is provided.
+    verbose : bool, default=False
+        Print progress messages during fitting.
+    multilabel_type : str, default="max"
+        Method to aggregate multi-class Ridge coefficients into a single
+        feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
+        (L∞), or ``"avg"`` (L1).
+
+    Attributes
+    ----------
+    is_fitted_ : bool
+        Whether the model has been fitted.
+    scaler_ : StandardScaler
+        Scaler fitted on the training feature matrix.
+    classifier_ : RidgeClassifier
+        Final classifier trained on the pruned feature set.
+    full_classifier_ : RidgeClassifierCV
+        Classifier trained on the full (unpruned) feature set.
+    full_model_alpha_ : float
+        Regularization alpha selected on the full model.
+    feature_mask_ : np.ndarray of bool
+        Boolean mask indicating which features are retained.
+    retained_ratios_ : np.ndarray
+        Proportion of features retained at each SFD step.
+    train_scores_ : np.ndarray
+        Training accuracy at each SFD step.
+    val_scores_ : np.ndarray or None
+        Validation accuracy at each SFD step.
+    importance_matrix_ : np.ndarray
+        Feature importance values at each SFD step.
+    selected_step_index_ : int
+        Index of the selected SFD step.
+    selected_ratio_ : float
+        Proportion of features retained at the selected step.
+
+    Examples
+    --------
+    >>> from detach_rocket.detach_classes import DetachMatrix
+    >>> model = DetachMatrix(trade_off=0.1)
+    >>> model.fit(X_train_features, y_train, X_val=X_val_features, y_val=y_val)
+    >>> y_pred = model.predict(X_test_features)
+
+    References
+    ----------
+    .. [1] Uribarri et al. (2024), *Detach-ROCKET: Sequential feature
+       selection for time series classification with random convolutional
+       kernels*, Data Mining and Knowledge Discovery.
     """
-    Rocket model with feature detachment. 
-    For univariate time series, the shape of `X_train` should be (n_instances, n_timepoints).
-    For multivariate time series, the shape of `X_train` should be (n_instances, n_variables, n_timepoints).
-
-    Parameters:
-    - model_type: Type of the rocket model ("rocket", "minirocket", "multirocket", or "pytorch_minirocket").
-    - num_kernels: Number of kernels for the rocket model.
-    - trade_off: Trade-off parameter to set optimal pruning.
-    - recompute_alpha: Whether to recompute alpha for optimal model training.
-    - val_ratio: Validation set ratio.
-    - verbose: Verbosity for logging.
-    - multilabel_type: Type of feature ranking in case of multilabel classification ("max" by default).
-    - fixed_percentage: If not None, the trade_off parameter is ignored and the model is fitted with a fixed percentage of selected features.
-
-    Attributes:
-    - _sfd_curve: Curve for Sequential Feature Detachment.
-    - _full_transformer: Full transformer for rocket model.
-    - _full_classifier: Full classifier for baseline.
-    - _full_model_alpha: Alpha for full model.
-    - _classifier: Classifier for optimal model.
-    - _feature_matrix: Feature matrix.
-    - _feature_importance_matrix: Matrix for feature importance. Zero values indicate pruned features. Dimension: [Number of steps, Number of features].
-    - _percentage_vector: Vector of percentage values.
-    - _scaler: Scaler for feature matrix.
-    - _labels: Labels.
-    - _acc_train: Training accuracy.
-    - _max_index: Index for maximum percentage.
-    - _max_percentage: Maximum percentage.
-    - _is_fitted: Flag indicating if the model is fitted.
-    - _optimal_computed: Flag indicating if optimal model is computed.
-
-    Methods:
-    - fit: Fit the DetachRocket model.
-    - fit_trade_off: Fit the model with a given trade-off.
-    - fit_set_optimal: Fit the model with a fixed percentage of features.
-    - predict: Make predictions using the fitted model.
-    - score: Get the accuracy score of the model.
-
-    """
-    
 
     def __init__(
         self,
-        model_type='rocket',
-        num_kernels=10000,
         trade_off=0.1,
-        recompute_alpha = True,
+        recompute_alpha=False,
         val_ratio=0.33,
-        verbose = False,
-        multilabel_type = 'max',
-        fixed_percentage = None
-        ):
-
-        self._sfd_curve = None
-        #self._transformer = None
-        self._full_transformer = None
-        self._full_classifier = None
-        self._full_model_alpha = None
-        self._classifier = None
-        self._feature_matrix = None
-        self._feature_matrix_val = None
-        self._feature_importance_matrix = None
-        self._percentage_vector = None
-        self._scaler = None
-        self._labels = None
-        self._acc_train = None
-        self._max_index = None
-        self._max_percentage = None
-        self._is_fitted = False
-        self._optimal_computed = False
-
-        self.num_kernels = num_kernels
-        self.trade_off = trade_off
+        verbose=False,
+        multilabel_type="max",
+        set_percentage=None,
+    ):
+        super().__init__(
+            trade_off=trade_off,
+            set_percentage=set_percentage,
+            recompute_alpha=recompute_alpha,
+            verbose=verbose,
+        )
         self.val_ratio = val_ratio
-        self.recompute_alpha = recompute_alpha
-        self.verbose = verbose
         self.multilabel_type = multilabel_type
-        self.fixed_percentage = fixed_percentage
 
-        # Create rocket model
-        if model_type == "rocket":
-            self._full_transformer = Rocket(num_kernels=num_kernels)
-        elif model_type == "minirocket":
-            self._full_transformer = MiniRocketMultivariate(num_kernels=num_kernels)
-        elif model_type == "multirocket":
-            self._full_transformer = MultiRocketMultivariate(num_kernels=num_kernels)
-        elif model_type == "pytorch_minirocket":
-            self._full_transformer = PytorchMiniRocketMultivariate(num_features=num_kernels)
-        else:
-            raise ValueError('Invalid model_type argument. Choose from: "rocket", "minirocket", "multirocket" or "pytorch_minirocket".')
+        # DetachMatrix-specific learned attributes
+        self.acc_train_ = None
+        self.labels_ = None
+        self.optimal_computed_ = False
 
-        self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
-        self._scaler = StandardScaler(with_mean=True)
+    # -- Input preparation (BaseDetach hooks) --------------------------------
 
-        return
+    def _prepare_X(self, X):
+        """Scale *X* and select retained features."""
+        return self._apply_feature_mask(X)
 
-    def fit(self, X, y=None, val_set=None, val_set_y=None, X_test=None, y_test=None):
+    def _prepare_X_full(self, X):
+        """Scale *X* using the fitted scaler (no masking)."""
+        return self.scaler_.transform(self._to_numpy(X))
 
-        assert y is not None, "Labels are required to fit Detach Rocket"
+    # -- Fit -----------------------------------------------------------------
 
-        if self.fixed_percentage is not None:
-            # If fixed percentage is provided, no validation set is required
-            # Assert there is no validation set
-            assert val_set is None, "Validation set is not allowed when using fixed percentage of features, since it is not required for training"
-            # Assert that both X_test set and y_test labels are provided
-            assert X_test is not None, "X_test is required to fit Detach Rocket with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
-            assert y_test is not None, "y_test is required to fit Detach Rocket with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
-            
-        if self.verbose == True:
-            print('Applying Data Transformation')
+    def fit(self, X, y=None, X_val=None, y_val=None, X_test=None, y_test=None):
+        """Fit the DetachMatrix model.
 
-        self._feature_matrix = self._full_transformer.fit_transform(X)
-        self._labels = y
+        Parameters
+        ----------
+        X : array-like of shape (n_instances, n_features)
+            Training feature matrix.
+        y : array-like of shape (n_instances,)
+            Training labels.
+        X_val : array-like or None, default=None
+            Validation feature matrix.  Required when ``set_percentage``
+            is *None* and no auto-split is desired.
+        y_val : array-like or None, default=None
+            Validation labels.
+        X_test : array-like or None, default=None
+            Test feature matrix.  Only used when ``set_percentage`` is set,
+            for computing the SFD curve for diagnostics.
+        y_test : array-like or None, default=None
+            Test labels (paired with *X_test*).
 
-        if self.verbose == True:
-            print('Fitting Full Model')
+        Returns
+        -------
+        self
+        """
+
+        if y is None:
+            raise ValueError("Labels are required to fit DetachMatrix.")
+
+        self.feature_matrix_ = X
+        self.labels_ = y
+
+        self._log('Fitting Full Model')
 
         # scale feature matrix
-        self._feature_matrix = self._scaler.fit_transform(self._feature_matrix)
+        self.scaler_ = StandardScaler(with_mean=True)
+        self.feature_matrix_ = self.scaler_.fit_transform(self.feature_matrix_)
 
-        if val_set is not None:
-            self._feature_matrix_val = self._full_transformer.transform(val_set)
-            self._feature_matrix_val = self._scaler.transform(self._feature_matrix_val)
+        # scale validation set (if provided) with the same scaler
+        if X_val is not None:
+            self.feature_matrix_val_ = self.scaler_.transform(X_val)
+
 
         # Train full rocket as baseline
-        self._full_classifier.fit(self._feature_matrix, y)
-        self._full_model_alpha = self._full_classifier.alpha_
+        self.full_classifier_ = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
+        self.full_classifier_.fit(self.feature_matrix_, y)
+        self.full_model_alpha_ = self.full_classifier_.alpha_
 
-        print('TRAINING RESULTS Full ROCKET:')
-        print('Optimal Alpha Full ROCKET: {:.2f}'.format(self._full_model_alpha))
-        print('Train Accuraccy Full ROCKET: {:.2f}%'.format(100*self._full_classifier.score(self._feature_matrix, y)))
-        print('-------------------------')
+        self._log('TRAINING RESULTS Full Features:')
+        self._log('Optimal Alpha Full Features: {:.2f}'.format(self.full_model_alpha_))
+        self._log('Train Accuracy Full Features: {:.2f}%'.format(100 * self.full_classifier_.score(self.feature_matrix_, y)))
+        self._log('-------------------------')
+
 
         # If fixed percentage is not provided, we set the number of features using the validation set
-        if self.fixed_percentage is None:
+        if self.set_percentage is None:
             
-            # Assert no test set is provided
-            assert X_test is None, "X_test is not allowed when using trade-off, SFD curves are  computed with a validation set."
+            if X_test is not None:
+                raise ValueError("X_test is not allowed when using trade-off. SFD curves are computed with a validation set.")
 
-            if val_set is not None:
-                X_train = self._feature_matrix
-                X_val = self._feature_matrix_val
+            if X_val is not None:
+                if y_val is None:
+                    raise ValueError("y_val is required when X_val is provided.")
+                X_train = self.feature_matrix_
+                X_val_scaled = self.feature_matrix_val_
                 y_train = y
-                y_val = val_set_y
             else:
             # Train-Validation split
-                X_train, X_val, y_train, y_val = train_test_split(self._feature_matrix,
+                X_train, X_val_scaled, y_train, y_val = train_test_split(self.feature_matrix_,
                                                                     y,
                                                                     test_size=self.val_ratio,
                                                                     random_state=42,
                                                                     stratify=y)
 
             # Train model for selected features
-            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
+            sfd_classifier = RidgeClassifier(alpha=self.full_model_alpha_)
             sfd_classifier.fit(X_train, y_train)
 
             # Feature Detachment
-            if self.verbose == True:
-                print('Applying Sequential Feature Detachment')
+            self._log('Applying Sequential Feature Detachment')
 
-            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
+            self.retained_ratios_, self.train_scores_, self.val_scores_, self.importance_matrix_ = feature_detachment(
+                sfd_classifier,
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_val_scaled,
+                y_test=y_val,
+                verbose=self.verbose,
+                multilabel_type=self.multilabel_type,
+            )
 
-            self._is_fitted = True
+            self.is_fitted_ = True
 
             # Training Optimal Model
-            if self.verbose == True:
-                print('Training Optimal Model')
-            
-            self.fit_trade_off(self.trade_off)
-
-        else:
-            # If fixed percentage is provided, no validation set is required
-            # We don't need to split the data into train and validation
-            # We are using a fixed percentage of features
-            X_train = self._feature_matrix
-            y_train = y
-            X_test = self._scaler.transform(self._full_transformer.transform(X_test))
-
-            # Train model for selected features
-            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
-            sfd_classifier.fit(X_train, y_train)
-
-            # Feature Detachment
-            if self.verbose == True:
-                print('Applying Sequential Feature Detachment')
-            
-            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_test, y_train, y_test, verbose=self.verbose, multilabel_type = self.multilabel_type)
-
-            self._is_fitted = True
-
-            if self.verbose == True:
-                print('Using fixed percentage of features')
-            self.fit_set_optimal(self.fixed_percentage)
-
-        return
-
-    def fit_trade_off(self,trade_off=None):
-
-        assert trade_off is not None, "Missing argument"
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
-
-        # Select optimal
-        max_index, max_percentage = select_optimal_model(self._percentage_vector, self._sfd_curve, self._sfd_curve[0], self.trade_off, graphics=False)
-        self._max_index = max_index
-        self._max_percentage = max_percentage
-
-        # Check if alpha will be recomputed
-        if self.recompute_alpha:
-            alpha_optimal = None
-        else:
-            alpha_optimal = self._full_model_alpha
-
-        # Create feature mask
-        self._feature_mask = self._feature_importance_matrix[max_index]>0
-
-        # Re-train optimal model
-        self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
-                                                                    self._feature_matrix,
-                                                                    self._labels,
-                                                                    self._max_index,
-                                                                    alpha_optimal,
-                                                                    verbose = self.verbose)
-
-        return
-    
-    def fit_set_optimal(self, fixed_percentage=None, graphics=True):
-
-        assert fixed_percentage is not None, "Missing argument"
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
-
-        self._max_index = (np.abs(self._percentage_vector - self.fixed_percentage)).argmin()
-        self._max_percentage = self._percentage_vector[self._max_index]
-
-        # Check if alpha will be recomputed
-        if self.recompute_alpha:
-            alpha_optimal = None
-        else:
-            alpha_optimal = self._full_model_alpha
-
-        # Create feature mask
-        self._feature_mask = self._feature_importance_matrix[self._max_index]>0
-
-        # Re-train optimal model
-        self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
-                                                                    self._feature_matrix,
-                                                                    self._labels,
-                                                                    self._max_index,
-                                                                    alpha_optimal,
-                                                                    verbose = self.verbose)
-        
-        return
-
-    def predict(self,X):
-
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
-
-        # Transform time series to feature matrix
-        transformed_X = np.asarray(self._full_transformer.transform(X))
-        transformed_X = self._scaler.transform(transformed_X)
-        masked_transformed_X = transformed_X[:,self._feature_mask]
-
-        y_pred = self._classifier.predict(masked_transformed_X)
-
-        return y_pred
-
-    def score(self, X, y):
-
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
-
-        # Transform time series to feature matrix
-        transformed_X = np.asarray(self._full_transformer.transform(X))
-        transformed_X = self._scaler.transform(transformed_X)
-        masked_transformed_X = transformed_X[:,self._feature_mask]
-
-        return self._classifier.score(masked_transformed_X, y), self._full_classifier.score(transformed_X, y)
-
-
-class DetachMatrix:
-    """
-    A class for pruning a feature matrix using feature detachment.
-    The shape of the input matrix should be (n_instances, n_features).
-
-    Parameters:
-    - trade_off: Trade-off parameter.
-    - recompute_alpha: Whether to recompute alpha for optimal model training.
-    - val_ratio: Validation set ratio.
-    - verbose: Verbosity for logging.
-    - multilabel_type: Type of multilabel classification ("max" by default).
-
-    Attributes:
-    - _sfd_curve: Curve for Sequential Feature Detachment.
-    - _scaler: Scaler for feature matrix.
-    - _classifier: Classifier for optimal model.
-    - _acc_train: Training accuracy.
-    - _full_classifier: Full classifier for baseline.
-    - _percentage_vector: Vector for percentage values.
-    - _feature_matrix: Feature matrix.
-    - _labels: Labels.
-    - _feature_importance_matrix: Matrix for feature importance.
-    - _full_model_alpha: Alpha for full model.
-    - _max_index: Index for maximum percentage.
-    - _max_percentage: Maximum percentage.
-    - _is_fitted: Flag indicating if the model is fitted.
-    - _optimal_computed: Flag indicating if optimal model is computed.
-    - trade_off: Trade-off parameter.
-    - val_ratio: Validation set ratio.
-    - recompute_alpha: Whether to recompute alpha for optimal model training.
-    - verbose: Verbosity for logging.
-    - multilabel_type: Type of feature ranking in case of multilabel classification ("max" by default).
-
-    Methods:
-    - fit: Fit the DetachMatrix model.
-    - fit_trade_off: Fit the model with a given trade-off.
-    - predict: Make predictions using the fitted model.
-    - score: Get the accuracy score of the model.
-
-    """
-
-    def __init__(
-        self,
-        trade_off=0.1,
-        recompute_alpha = True,
-        val_ratio=0.33,
-        verbose = False,
-        multilabel_type = 'max',
-        fixed_percentage = None
-        ):
-
-        self._sfd_curve = None
-        self._scaler = None
-        self._classifier = None
-        self._acc_train = None
-        self._full_classifier = None
-        self._percentage_vector = None
-        self._feature_matrix = None
-        self._labels = None
-        self._feature_importance_matrix = None
-        self._full_model_alpha = None
-        self._max_index = None
-        self._max_percentage = None
-        self._is_fitted = False
-        self._optimal_computed = False
-        
-
-        self.trade_off = trade_off
-        self.val_ratio = val_ratio
-        self.recompute_alpha = recompute_alpha
-        self.verbose = verbose
-        self.multilabel_type = multilabel_type
-        self.fixed_percentage = fixed_percentage
-
-        self._full_classifier = RidgeClassifierCV(alphas=np.logspace(-10,10,20))
-        self._scaler = StandardScaler(with_mean=True)
-
-        return
-
-    def fit(self, X, y=None, val_set=None, val_set_y=None, X_test=None, y_test=None):
-
-        assert y is not None, "Labels are required to fit Detach Matrix"
-
-        self._feature_matrix = X
-        self._labels = y
-
-        if val_set is not None:
-            self._feature_matrix_val = val_set
-
-        if self.verbose == True:
-            print('Fitting Full Model')
-
-        # scale feature matrix
-        self._feature_matrix = self._scaler.fit_transform(self._feature_matrix)
-    
-
-        # Train full rocket as baseline
-        self._full_classifier.fit(self._feature_matrix, y)
-        self._full_model_alpha = self._full_classifier.alpha_
-
-        print('TRAINING RESULTS Full Features:')
-        print('Optimal Alpha Full Features: {:.2f}'.format(self._full_model_alpha))
-        print('Train Accuraccy Full Features: {:.2f}%'.format(100*self._full_classifier.score(self._feature_matrix, y)))
-        print('-------------------------')
-
-
-        # If fixed percentage is not provided, we set the number of features using the validation set
-        if self.fixed_percentage is None:
-            
-            # Assert no test set is provided
-            assert X_test is None, "X_test is not allowed when using trade-off, SFD curves are  computed with a validation set."
-
-            if val_set is not None:
-                X_train = self._feature_matrix
-                X_val = self._feature_matrix_val
-                y_train = y
-                y_val = val_set_y
-            else:
-            # Train-Validation split
-                X_train, X_val, y_train, y_val = train_test_split(self._feature_matrix,
-                                                                    y,
-                                                                    test_size=self.val_ratio,
-                                                                    random_state=42,
-                                                                    stratify=y)
-
-            # Train model for selected features
-            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
-            sfd_classifier.fit(X_train, y_train)
-
-            # Feature Detachment
-            if self.verbose == True:
-                print('Applying Sequential Feature Detachment')
-
-            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_val, y_train, y_val, verbose=self.verbose, multilabel_type = self.multilabel_type)
-
-            self._is_fitted = True
-
-            # Training Optimal Model
-            if self.verbose == True:
-                print('Training Optimal Model')
+            self._log('Training Optimal Model')
             
             self.fit_trade_off(self.trade_off)
 
         # If fixed percentage is provided, no validation set is required
         else:
-            # Assert there is no validation set
-            assert val_set is None, "Validation set is not allowed when using fixed percentage of features, since it is not required for training"
-            # Assert that both X_test set and y_test labels are provided
-            assert X_test is not None, "X_test is required to fit Detach Matrix with fixed percentage. It is not used for training, but for plotting the feature detachment curve."
-            assert y_test is not None, "y_test is required to fit Detach Matrix with fixed percentage. . It is not used for training, but for plotting the feature detachment curve."
+            if X_val is not None:
+                raise ValueError("Validation set is not allowed when using fixed percentage of features, since it is not required for training.")
+            if X_test is None:
+                raise ValueError("X_test is required to fit DetachMatrix with fixed percentage. It is not used for training, but for plotting the feature detachment curve.")
+            if y_test is None:
+                raise ValueError("y_test is required to fit DetachMatrix with fixed percentage. It is not used for training, but for plotting the feature detachment curve.")
 
             # We don't need to split the data into train and validation
             # We are using a fixed percentage of features
-            X_train = self._feature_matrix
+            X_train = self.feature_matrix_
             y_train = y
-            X_test = self._scaler.transform(X_test)
+            X_test = self.scaler_.transform(X_test)
 
             # Train model for selected features
-            sfd_classifier = RidgeClassifier(alpha=self._full_model_alpha)
+            sfd_classifier = RidgeClassifier(alpha=self.full_model_alpha_)
             sfd_classifier.fit(X_train, y_train)
 
             # Feature Detachment
-            if self.verbose == True:
-                print('Applying Sequential Feature Detachment')
-            
-            self._percentage_vector, _, self._sfd_curve, self._feature_importance_matrix = feature_detachment(sfd_classifier, X_train, X_test, y_train, y_test, verbose=self.verbose, multilabel_type = self.multilabel_type)
+            self._log('Applying Sequential Feature Detachment')
 
-            self._is_fitted = True
+            self.retained_ratios_, self.train_scores_, self.val_scores_, self.importance_matrix_ = feature_detachment(
+                sfd_classifier,
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                verbose=self.verbose,
+                multilabel_type=self.multilabel_type,
+            )
 
-            if self.verbose == True:
-                print('Using fixed percentage of features')
-            self.fit_set_optimal(self.fixed_percentage)
+            self.is_fitted_ = True
 
-        return
+            self._log('Using fixed percentage of features')
+            self.fit_set_optimal(self.set_percentage)
 
-    def fit_trade_off(self,trade_off=None):
+        return self
 
-        assert trade_off is not None, "Missing argument"
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
+    def fit_trade_off(self, trade_off=None):
+        """Select the optimal pruning level using a trade-off criterion.
+
+        Can be called after :meth:`fit` to re-select the pruning level
+        with a different ``trade_off`` value without re-running SFD.
+
+        Parameters
+        ----------
+        trade_off : float
+            Trade-off weight between compression and accuracy.
+        """
+
+        if trade_off is None:
+            raise ValueError("trade_off argument is required.")
+        self._require_fitted()
 
         # Select optimal
-        max_index, max_percentage = select_optimal_model(self._percentage_vector, self._sfd_curve, self._sfd_curve[0], self.trade_off, graphics=False)
-        self._max_index = max_index
-        self._max_percentage = max_percentage
+        max_index, max_percentage = select_optimal_pruning(
+            self.retained_ratios_,
+            self.val_scores_,
+            self.val_scores_[0],
+            trade_off,
+        )
+        self.selected_step_index_ = max_index
+        self.selected_ratio_ = max_percentage
 
         # Check if alpha will be recomputed
         if self.recompute_alpha:
             alpha_optimal = None
         else:
-            alpha_optimal = self._full_model_alpha
+            alpha_optimal = self.full_model_alpha_
 
         # Create feature mask
-        self._feature_mask = self._feature_importance_matrix[max_index]>0
+        self.feature_mask_ = self.importance_matrix_[max_index] > 0
 
         # Re-train optimal model
-        self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
-                                                                    self._feature_matrix,
-                                                                    self._labels,
-                                                                    max_index,
-                                                                    alpha_optimal,
-                                                                    verbose = self.verbose)
+        self.classifier_, self.acc_train_ = retrain_optimal_model(
+            self.feature_mask_,
+            self.feature_matrix_,
+            self.labels_,
+            max_index,
+            alpha_optimal,
+            verbose=self.verbose,
+        )
+        self.optimal_computed_ = True
 
         return
 
-    def fit_set_optimal(self, fixed_percentage=None, graphics=True):
+    def fit_set_optimal(self, set_percentage=None):
+        """Select the pruning level by a fixed percentage.
 
-        assert fixed_percentage is not None, "Missing argument"
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
+        Can be called after :meth:`fit` to re-select the pruning level
+        with a different ``set_percentage`` without re-running SFD.
 
-        self._max_index = (np.abs(self._percentage_vector - self.fixed_percentage)).argmin()
-        self._max_percentage = self._percentage_vector[self._max_index]
+        Parameters
+        ----------
+        set_percentage : float
+            Percentage of features to retain (e.g. ``50`` means 50 %).
+        """
+
+        if set_percentage is None:
+            raise ValueError("set_percentage argument is required.")
+        self._require_fitted()
+
+        self.selected_step_index_ = (np.abs(self.retained_ratios_ - set_percentage / 100)).argmin()
+        self.selected_ratio_ = self.retained_ratios_[self.selected_step_index_]
 
         # Check if alpha will be recomputed
         if self.recompute_alpha:
             alpha_optimal = None
         else:
-            alpha_optimal = self._full_model_alpha
+            alpha_optimal = self.full_model_alpha_
 
         # Create feature mask
-        self._feature_mask = self._feature_importance_matrix[self._max_index]>0
+        self.feature_mask_ = self.importance_matrix_[self.selected_step_index_] > 0
 
         # Re-train optimal model
-        self._classifier, self._acc_train = retrain_optimal_model(self._feature_mask,
-                                                                    self._feature_matrix,
-                                                                    self._labels,
-                                                                    self._max_index,
-                                                                    alpha_optimal,
-                                                                    verbose = self.verbose)
+        self.classifier_, self.acc_train_ = retrain_optimal_model(
+            self.feature_mask_,
+            self.feature_matrix_,
+            self.labels_,
+            self.selected_step_index_,
+            alpha_optimal,
+            verbose=self.verbose,
+        )
+        self.optimal_computed_ = True
         
         return
 
-    def predict(self,X):
-
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
-
-        # Transform time series to feature matrix
-        scaled_X = self._scaler.transform(X)
-        masked_scaled_X = scaled_X[:,self._feature_mask]
-
-        y_pred = self._classifier.predict(masked_scaled_X)
-
-        return y_pred
-
-    def score(self, X, y):
-
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
-
-        # Transform time series to feature matrix
-        scaled_X = self._scaler.transform(X)
-        masked_scaled_X = scaled_X[:,self._feature_mask]
+    def _get_train_score(self):
+        """Return the training accuracy from the retrained optimal model."""
+        return float(self.acc_train_) if self.acc_train_ is not None else None
 
 
-        return self._classifier.score(masked_scaled_X, y), self._full_classifier.score(scaled_X, y)
-    
+_TorchModuleBase = torch.nn.Module if torch is not None else object
 
 
-class PytorchMiniRocketMultivariate(torch.nn.Module):
-        """This is a Pytorch implementation of MiniRocket developed by Malcolm McLean and Ignacio Oguiza
+class PytorchMiniRocketMultivariate(_TorchModuleBase):
+        """PyTorch implementation of MiniRocket for multivariate time series.
 
-        MiniRocket paper citation:
-        @article{dempster_etal_2020,
-        author  = {Dempster, Angus and Schmidt, Daniel F and Webb, Geoffrey I},
-        title   = {{MINIROCKET}: A Very Fast (Almost) Deterministic Transform for Time Series Classification},
-        year    = {2020},
-        journal = {arXiv:2012.08791}
-        }
-        Original paper: https://arxiv.org/abs/2012.08791
-        Original code:  https://github.com/angus924/minirocket
-        
-        The class was edited by Adrià Solana for the Detach Rocket Ensemble study."""
+        Based on the MiniRocket algorithm by Dempster, Schmidt & Webb (2020),
+        reimplemented in PyTorch by Malcolm McLean and Ignacio Oguiza, and
+        edited by Adrià Solana for the Detach-ROCKET Ensemble study.
+
+        This module generates random convolutional features using fixed
+        kernel patterns with varying dilations, and uses Proportion of
+        Positive Values (PPV) pooling.  For multivariate time series,
+        random channel combinations are applied at each dilation level.
+
+        Parameters
+        ----------
+        num_features : int, default=10_000
+            Total number of features to generate (rounded down to a
+            multiple of 84).
+        max_dilations_per_kernel : int, default=32
+            Maximum number of dilation levels per kernel.
+        device : torch.device or None, default=None
+            Device to run computations on.  Defaults to CUDA if available,
+            otherwise CPU.
+
+        References
+        ----------
+        .. [1] Dempster, A., Schmidt, D. F., & Webb, G. I. (2020).
+               MINIROCKET: A Very Fast (Almost) Deterministic Transform
+               for Time Series Classification. arXiv:2012.08791.
+        """
 
         kernel_size, num_kernels, fitting = 9, 84, False
 
         def __init__(self, num_features=10_000, max_dilations_per_kernel=32, device=None):
+            if torch is None:
+                raise ImportError(
+                    "PytorchMiniRocketMultivariate requires torch. Install torch to use this transformer."
+                ) from _TORCH_IMPORT_ERROR
             super().__init__()
             self.num_features = num_features
             self.max_dilations_per_kernel = max_dilations_per_kernel
@@ -891,8 +1062,10 @@ class PytorchMiniRocketMultivariate(torch.nn.Module):
             return biases
 
         def transform(self, o, chunksize=128):
-            o = torch.tensor(o).float()
-            if isinstance(o, np.ndarray): o = torch.from_numpy(o).to(self.device)
+            if isinstance(o, np.ndarray):
+                o = torch.from_numpy(o).float()
+            else:
+                o = torch.as_tensor(o).float()
             
             _features = []
             for oi in torch.split(o, chunksize):
@@ -905,95 +1078,237 @@ class PytorchMiniRocketMultivariate(torch.nn.Module):
 
 
 class DetachEnsemble():
-    def __init__(self, 
-                num_models=25, 
-                num_kernels=10000, 
-                model_type='pytorch_minirocket',
-                trade_off=0.1, 
-                recompute_alpha=True,
-                val_ratio=0.33, 
-                verbose=False,
-                multilabel_type='max',
-                fixed_percentage=None,
-                ):
-            
-        assert model_type == 'pytorch_minirocket', f"Incorrect model_type {model_type}: DetachEnsemble currently only supports 'pytorch_minirocket'"
+    """Ensemble of Detach-ROCKET models for multivariate time series.
+
+    Creates multiple :class:`DetachRocket` models — each with an
+    independently randomized :class:`PytorchMiniRocketMultivariate`
+    transformer — fits them independently, and combines their predictions
+    via soft or hard voting.  Also provides channel-relevance estimation
+    for multivariate data.
+
+    Parameters
+    ----------
+    num_models : int, default=25
+        Number of Detach-ROCKET models in the ensemble.
+    num_kernels : int, default=10_000
+        Number of kernels for each underlying
+        :class:`PytorchMiniRocketMultivariate` transformer.
+    trade_off : float, default=0.1
+        Trade-off parameter passed to each :class:`DetachRocket`.
+    set_percentage : float or None, default=None
+        If set, each model uses a fixed pruning percentage instead of
+        the trade-off criterion.  When not *None*, ``trade_off`` is
+        ignored and no validation split is needed.
+    recompute_alpha : bool, default=True
+        Whether each model recomputes Ridge alpha after pruning.
+    val_ratio : float, default=0.33
+        Fraction of the training data used as a validation set for each
+        model (only used when ``set_percentage`` is *None*).
+    verbose : bool, default=False
+        Print progress messages.
+
+    Attributes
+    ----------
+    derockets : list of DetachRocket
+        The individual Detach-ROCKET models.
+    label_encoder : LabelEncoder
+        Encoder mapping original labels to integer indices.
+    is_fitted_ : bool
+        Whether the ensemble has been fitted.
+    num_channels : int
+        Number of input channels (set after :meth:`fit`).
+
+    Examples
+    --------
+    >>> from detach_rocket.detach_classes import DetachEnsemble
+    >>> ensemble = DetachEnsemble(num_models=5, num_kernels=5_000)
+    >>> ensemble.fit(X_train, y_train)
+    >>> y_pred = ensemble.predict(X_test)
+    >>> relevance = ensemble.estimate_channel_relevance()
+
+    References
+    ----------
+    .. [1] Solana, A., Fransén, E., & Uribarri, G. (2024).
+           Classification of raw MEG/EEG data with detach-rocket ensemble.
+           arXiv:2408.02760.
+    """
+
+    def __init__(
+        self,
+        num_models=25,
+        num_kernels=10_000,
+        trade_off=0.1,
+        set_percentage=None,
+        recompute_alpha=True,
+        val_ratio=0.33,
+        verbose=False,
+    ):
+        if torch is None:
+            raise ImportError(
+                "DetachEnsemble requires PyTorch. Install torch to use this class."
+            ) from _TORCH_IMPORT_ERROR
+
         self.num_models = num_models
         self.num_kernels = num_kernels
-        self.model_type = model_type
+        self.trade_off = trade_off
+        self.set_percentage = set_percentage
+        self.recompute_alpha = recompute_alpha
+        self.val_ratio = val_ratio
+        self.verbose = verbose
+
         self.derockets = []
         for _ in range(num_models):
-            _DetachRocket = DetachRocket(
-                            model_type='pytorch_minirocket',
-                            num_kernels=num_kernels,
-                            trade_off=trade_off,
-                            recompute_alpha=recompute_alpha,
-                            val_ratio=val_ratio,
-                            verbose=verbose,
-                            multilabel_type=multilabel_type,
-                            fixed_percentage=fixed_percentage,
-                           )
-
-            self.derockets.append(_DetachRocket)
+            transformer = PytorchMiniRocketMultivariate(num_features=num_kernels)
+            model = DetachRocket(
+                transformer=transformer,
+                trade_off=trade_off,
+                set_percentage=set_percentage,
+                recompute_alpha=recompute_alpha,
+                verbose=verbose,
+            )
+            self.derockets.append(model)
 
         self.label_encoder = LabelEncoder()
-        self._is_fitted = False
+        self.is_fitted_ = False
 
-    # Transformer / Classifier methods
     def fit(self, X, y):
-        [model.fit(X, y) for model in self.derockets]
+        """Fit all ensemble members on the training data.
+
+        When ``set_percentage`` is *None*, a stratified train/validation
+        split is performed (controlled by ``val_ratio``) and passed to
+        each :class:`DetachRocket` model.  When ``set_percentage`` is
+        set, the full training set is used without splitting.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_instances, n_channels, n_timepoints)
+            Multivariate training time series.
+        y : array-like of shape (n_instances,)
+            Training labels.
+
+        Returns
+        -------
+        self
+        """
+        if self.set_percentage is None:
+            X_train, X_val, y_train, y_val = train_test_split(
+                X, y,
+                test_size=self.val_ratio,
+                random_state=42,
+                stratify=y,
+            )
+        else:
+            X_train, y_train = X, y
+            X_val, y_val = None, None
+
+        for model in self.derockets:
+            model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+
         self.num_channels = X.shape[1]
         self.label_encoder.fit(y)
-
-        self._is_fitted = True
+        self.is_fitted_ = True
         return self
 
     def predict_proba(self, X, proba='soft'):
-        assert self._is_fitted == True, "Model not fitted. Call fit method first."
-        weight_matrix = np.zeros((X.shape[0], len(self.label_encoder.classes_), self.num_models)) # (samples, classes, estimators)
+        """Return class probability estimates for *X*.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_channels, n_timepoints)
+            Input time series.
+        proba : {'soft', 'hard'}, default='soft'
+            Voting strategy.  ``'soft'`` weights each model's vote by
+            its training accuracy at the selected pruning step.
+            ``'hard'`` gives equal weight to every model.
+
+        Returns
+        -------
+        probas : np.ndarray of shape (n_samples, n_classes)
+            Normalized class probabilities.
+        """
+        if not self.is_fitted_:
+            raise ValueError("Model not fitted. Call fit method first.")
+
+        n_samples = X.shape[0]
+        n_classes = len(self.label_encoder.classes_)
+        weight_matrix = np.zeros((n_samples, n_classes, self.num_models))
 
         for m, model in enumerate(self.derockets):
             encoded_predictions = self.label_encoder.transform(model.predict(X))
+            train_acc = model.train_scores_[model.selected_step_index_]
 
             for p, pred in enumerate(encoded_predictions):
-                weight_matrix[p, pred, m] = model._acc_train
+                weight_matrix[p, pred, m] = train_acc
 
         if proba == 'soft':
             votes = weight_matrix.sum(axis=2)
         elif proba == 'hard':
             votes = (weight_matrix != 0).astype(int).sum(axis=2)
-            pass
-        else: 
+        else:
             raise ValueError(f'proba={proba} is not valid. Use "soft" or "hard".')
-        
-        probas = votes / votes.sum(axis=(1), keepdims=True)
+
+        probas = votes / votes.sum(axis=1, keepdims=True)
         return probas
 
     def predict(self, X):
+        """Predict class labels for *X* using ensemble voting.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_channels, n_timepoints)
+            Input time series.
+
+        Returns
+        -------
+        y_pred : np.ndarray of shape (n_samples,)
+        """
         predictions = self.predict_proba(X).argmax(axis=1)
         return self.label_encoder.inverse_transform(predictions)
-    
+
     def estimate_channel_relevance(self):
+        """Estimate the relevance of each input channel.
+
+        Computes a median relevance score across all ensemble members
+        by distributing each feature's importance to the channels used
+        by its corresponding kernel.
+
+        Returns
+        -------
+        channel_relevance : np.ndarray of shape (n_channels,)
+            Normalized relevance score for each channel.
+        """
+        if not self.is_fitted_:
+            raise ValueError("Model not fitted. Call fit method first.")
+
         channel_relevance_matrix = np.zeros((self.num_models, self.num_channels))
 
         for m, model in enumerate(self.derockets):
-            # Get the weights and the channel combination matrix for the selected features
-            feature_weights = model._feature_importance_matrix[model._max_index] # Sparse float array (num_features,)
+            # Get feature weights at the selected pruning step
+            feature_weights = model.importance_matrix_[model.selected_step_index_]
             selection_mask = feature_weights > 0
 
-            channel_combinations_derocket = model._full_transformer.get_kernel_features('channels', selection_mask) # Indicator matrix (num_features, num_channels)
-            num_channels_in_kernel = np.nansum(channel_combinations_derocket, axis=1)
+            # Channel indicator matrix (num_features, num_channels)
+            channel_combinations = model.transformer.get_kernel_features(
+                'channels', selection_mask
+            )
+            num_channels_in_kernel = np.nansum(channel_combinations, axis=1)
 
-            # Divide weights by the number of channels (num_features,)
-            full_weights = (feature_weights[num_channels_in_kernel != 0] / num_channels_in_kernel[num_channels_in_kernel != 0])
+            # Divide weights by the number of channels per kernel
+            valid = num_channels_in_kernel != 0
+            full_weights = feature_weights[valid] / num_channels_in_kernel[valid]
 
-            # Get the weighted channel combination matrix (num_features, num_channels)
-            weighted_channel_combinations = channel_combinations_derocket[num_channels_in_kernel != 0]*full_weights[:, np.newaxis]
+            # Weighted channel combination matrix (num_features, num_channels)
+            weighted_channel_combinations = (
+                channel_combinations[valid] * full_weights[:, np.newaxis]
+            )
 
             # Sum contributions and normalize (num_channels,)
-            channel_relevance = np.sum(weighted_channel_combinations, axis=0) / np.sum(weighted_channel_combinations)
+            total = np.sum(weighted_channel_combinations)
+            if total > 0:
+                channel_relevance = np.sum(weighted_channel_combinations, axis=0) / total
+            else:
+                channel_relevance = np.zeros(self.num_channels)
 
-            # Add to the ensemble matrix
             channel_relevance_matrix[m] = channel_relevance
 
         return np.median(channel_relevance_matrix, axis=0)

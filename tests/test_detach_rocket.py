@@ -30,6 +30,7 @@ def data():
 
 @pytest.fixture(scope="function")
 def detach_rocket():
+    pytest.importorskip("numba")
     # Initialize a Rocket transformer with 512 kernels
     rocket_transformer = Rocket(num_kernels=512)
     # Initialize the DetachRocket class
@@ -58,20 +59,20 @@ def detach_rocket():
 def test_fit_with_optimal_pruning(detach_rocket, data):
     """Test the fit function without a fixed pruning percentage, allowing optimal selection."""
     # Set set_percentage to None to allow optimal pruning
-    detach_rocket._set_percentage = None
+    detach_rocket.set_percentage = None
 
     # Call the fit method
     detach_rocket.fit(data["X_train"], data["y_train"], X_val=data["X_val"], y_val=data["y_val"])
 
     # Assert that the pruned transformer was created
-    assert detach_rocket._pruned_transformer is not None, "Pruned transformer should be initialized"
+    assert detach_rocket.pruned_transformer_ is not None, "Pruned transformer should be initialized"
 
     # Check that the optimal feature mask has been generated
-    assert detach_rocket._optimal_feature_mask is not None, "Optimal feature mask should be initialized"
+    assert detach_rocket.feature_mask_ is not None, "Optimal feature mask should be initialized"
 
     # Assert that the max index and max percentage were calculated correctly
-    assert detach_rocket._max_index >= 0, "Max index should be non-negative"
-    assert detach_rocket._max_percentage >= 0, "Max percentage should be non-negative"
+    assert detach_rocket.selected_step_index_ >= 0, "Max index should be non-negative"
+    assert detach_rocket.selected_ratio_ >= 0, "Max percentage should be non-negative"
 
 def test_rocket_pruner(detach_rocket, data):
 
@@ -81,16 +82,16 @@ def test_rocket_pruner(detach_rocket, data):
     detach_rocket.fit(data["X_train"], data["y_train"])
 
     # Assert that the pruned transformer is an instance of PrunedRocket
-    pruned_transformer = detach_rocket._pruned_transformer
+    pruned_transformer = detach_rocket.pruned_transformer_
     assert isinstance(pruned_transformer, PrunedRocket), "Pruned transformer should be a Rocket instance"
     
     # Assert that the pruned transformer has the correct number of kernels
-    retained_num_kernels = np.sum(detach_rocket._optimal_feature_mask[0::2] | detach_rocket._optimal_feature_mask[1::2])
+    retained_num_kernels = np.sum(detach_rocket.feature_mask_[0::2] | detach_rocket.feature_mask_[1::2])
     assert pruned_transformer.num_kernels == retained_num_kernels, "Pruned transformer kernel count mismatch"
     
     # Ensure that pruned transformer can transform data
     pruned_features = pruned_transformer.transform(data["X_train"])
-    assert pruned_features.shape[1] == np.sum(detach_rocket._optimal_feature_mask), "Pruned features shape mismatch"
+    assert pruned_features.shape[1] == np.sum(detach_rocket.feature_mask_), "Pruned features shape mismatch"
 
 
 def test_invalid_pruning():
@@ -101,5 +102,18 @@ def test_invalid_pruning():
         pruner.prune_transformer(None, np.array([True, False]))
 
 
-# check if result is near with threshold  0.001
+def test_get_summary(detach_rocket, data):
+    detach_rocket.set_percentage = None
+    detach_rocket.fit(data["X_train"], data["y_train"], X_val=data["X_val"], y_val=data["y_val"])
 
+    summary = detach_rocket.get_summary()
+
+    assert summary["estimator"] == "DetachRocket"
+    assert summary["is_fitted"] is True
+    assert summary["selected_feature_count"] <= summary["full_feature_count"]
+    assert 0 <= summary["selected_ratio"] <= 1
+    assert summary["retained_kernel_count"] == detach_rocket.pruned_transformer_.num_kernels
+    assert summary["final_model_alpha"] > 0
+
+
+# check if result is near with threshold  0.001

@@ -1,5 +1,8 @@
+"""
+Transformer pruning utilities for ROCKET-family models.
+"""
 
-
+from abc import ABC, abstractmethod
 from sktime.transformations.panel.rocket import (
     Rocket,
     MiniRocketMultivariate,
@@ -8,7 +11,24 @@ from sktime.transformations.panel.rocket import (
 
 import numpy as np
 
+
 def get_transformer_pruner(transformer):
+    """Return the appropriate :class:`TransformerPruner` for *transformer*.
+
+    Parameters
+    ----------
+    transformer : sktime transformer
+        A fitted ROCKET-family transformer.
+
+    Returns
+    -------
+    pruner : TransformerPruner
+
+    Raises
+    ------
+    ValueError
+        If no pruner is available for the given transformer type.
+    """
     if isinstance(transformer, Rocket):
         return RocketTransformerPruner()
     # elif isinstance(transformer, MiniRocketTransformer):
@@ -17,30 +37,88 @@ def get_transformer_pruner(transformer):
         raise ValueError(f"No pruner available for transformer type: {type(transformer)}")
     
 
-# define a PrunedRocket class, which inherits everything from Rocket but replace the transform method
 class PrunedRocket(Rocket):
+    """A pruned Rocket transformer that outputs only retained features.
+
+    Inherits from :class:`~sktime.transformations.panel.rocket.Rocket`
+    but overrides ``transform`` to apply the full convolution and then
+    select only the columns indicated by ``features_mask``.
+
+    Parameters
+    ----------
+    num_kernels : int
+        Number of retained kernels.
+    features_mask : np.ndarray of bool
+        Boolean mask of length ``2 * num_kernels`` indicating which
+        of the two features (PPV and max) per kernel are retained.
+    """
+
     _tags = {"fit_is_empty": True}
+
     def __init__(self, num_kernels, features_mask):
         super().__init__(num_kernels=num_kernels)
-        self.features_mask = features_mask # cases where PPV or max are not used
+        self.features_mask = features_mask
         self._is_fitted = True
 
-    def transform(self, X):        
-        X_transf=super().transform(X) # dataframe
+    def transform(self, X):
+        """Transform *X* and return only the retained feature columns."""
+        X_transf = super().transform(X)
         X_transf = X_transf.to_numpy()
         return X_transf[:, self.features_mask]
 
     
-class TransformerPruner:
-    """
-    Base class for pruning a transformer.
-    Subclasses should implement the `prune_transformer` method.
-    """
-    def prune_transformer(self, original_transformer, optimal_feature_mask):
-        raise NotImplementedError("Subclasses must implement this method")
+class TransformerPruner(ABC):
+    """Abstract base class for transformer pruners.
 
+    Subclasses must implement :meth:`prune_transformer` for a specific
+    ROCKET-family transformer type.
+    """
+    
+    @abstractmethod
+    def prune_transformer(self, original_transformer, optimal_feature_mask):
+        """Create a pruned copy of *original_transformer*.
+
+        Parameters
+        ----------
+        original_transformer : sktime transformer
+            A **fitted** ROCKET-family transformer.
+        optimal_feature_mask : np.ndarray of bool
+            Boolean mask indicating which features to retain.
+
+        Returns
+        -------
+        pruned_transformer
+            A new transformer that outputs only the retained features.
+        """
+        
 class RocketTransformerPruner(TransformerPruner):
+    """Pruner for :class:`~sktime.transformations.panel.rocket.Rocket`.
+
+    Extracts the kernel parameters (weights, biases, dilations, paddings,
+    channel indices) corresponding to retained features and builds a
+    :class:`PrunedRocket` instance.
+    """
+
     def prune_transformer(self, original_trf, optimal_feature_mask):
+        """Create a pruned Rocket transformer.
+
+        Parameters
+        ----------
+        original_trf : Rocket
+            A **fitted** Rocket transformer (must have ``kernels``
+            attribute).
+        optimal_feature_mask : np.ndarray of bool
+            Boolean mask of length ``2 * num_kernels``.
+
+        Returns
+        -------
+        pruned_trf : PrunedRocket
+
+        Raises
+        ------
+        ValueError
+            If *original_trf* has not been fitted.
+        """
 
         # check if transformer is fit
         if not hasattr(original_trf, 'kernels'):
@@ -88,6 +166,7 @@ class RocketTransformerPruner(TransformerPruner):
                 retained_biases[i_retained] = original_trf.kernels[2][i]
                 retained_dilations[i_retained] = original_trf.kernels[3][i]
                 retained_paddings[i_retained] = original_trf.kernels[4][i]
+                retained_num_channel_indices[i_retained] = _num_channels_indices
                 
                 a1_retained += (b1 - a1)
                 a2_retained += (b2 - a2)

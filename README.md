@@ -21,6 +21,11 @@ This repository contains Python implementations of Sequential Feature Detachment
 
 For a detailed explanation of the models and methods please refer to the [Detach-ROCKET article](https://link.springer.com/article/10.1007/s10618-024-01062-7) and the [Detach-ROCKET Ensemble article](https://www.arxiv.org/abs/2408.02760).
 
+## Core Modules
+
+- `detach_rocket/sfd.py`: Sequential Feature Detachment core logic (`feature_detachment`).
+- `detach_rocket/model_selection.py`: model-size selection and final retraining utilities.
+
 ## Installation
 
 To install the required dependencies, execute:
@@ -34,17 +39,30 @@ pip install git+https://github.com/gon-uri/detach_rocket --quiet
 The model usage is the same as in the scikit-learn library. 
 
 ```python
-# Import Model
+# Import model and transformer
 from detach_rocket.detach_classes import DetachRocket
+from sktime.transformations.panel.rocket import Rocket
 
-# Instantiate Model
-DetachRocketModel = DetachRocket('rocket', num_kernels=10000)
+# Instantiate model
+rocket = Rocket(num_kernels=10_000)
+detach_model = DetachRocket(transformer=rocket, trade_off=0.1)
 
-# Trian Model
-DetachRocketModel.fit(X_train,y_train)
+# Train model (validation set required when set_percentage=None)
+detach_model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
 
-# Predict Test Set
-y_pred = DetachRocketModel.predict(X_test)
+# Predict and score
+y_pred = detach_model.predict(X_test)
+test_acc = detach_model.score(X_test, y_test)
+full_model_acc = detach_model.score_full(X_test, y_test)  # Optional baseline
+summary = detach_model.get_summary()
+```
+
+If you prefer a fixed pruning level, pass `set_percentage` and fit without a validation set:
+
+```python
+rocket = Rocket(num_kernels=10_000)
+detach_model = DetachRocket(transformer=rocket, set_percentage=50)
+detach_model.fit(X_train, y_train)
 ```
 
 For univariate time series, the shape of `X_train` should be (n_instances, n_timepoints).
@@ -53,19 +71,14 @@ For multivariate time series, the shape of `X_train` should be (n_instances, n_v
 
 ## Usage - DetachRocket Ensemble
 This model is more suitable for Multivariate Time Series with a large number of channels/dimensions.
+The Ensemble API is currently being aligned with the `DetachRocket` API in this branch.
 
 ```python
-# Import Model
+# Import model
 from detach_rocket.detach_classes import DetachEnsemble
 
-# Instantiate Model
-DetachRocketEnsemble = DetachEnsemble('pytorch_minirocket', num_kernels=10000)
-
-# Trian Model
-DetachRocketEnsemble.fit(X_train,y_train)
-
-# Predict Test Set
-y_pred = DetachRocketEnsemble.predict(X_test)
+# Work in progress: API may change in upcoming updates
+ensemble = DetachEnsemble(model_type='pytorch_minirocket', num_kernels=10000)
 ```
 
 ## Notebook Examples

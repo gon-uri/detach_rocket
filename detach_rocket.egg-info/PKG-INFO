@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: detach_rocket
+Version: 0.0.1
+Summary: Sequential Feature Detachment for Random Convolutional Kernel models.
+Home-page: https://github.com/gon-uri/detach_rocket
+Author: Gonzalo Uribarri & Federico Barone
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: BSD 3-Clause License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+Dynamic: author
+Dynamic: classifier
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-python
+Dynamic: summary
