@@ -43,7 +43,7 @@ class BaseDetach:
     """
 
     def __init__(
-        self, trade_off=0.1, set_percentage=None, recompute_alpha=False, verbose=False, multilabel_type="norm"
+        self, trade_off=0.1, set_percentage=None, recompute_alpha=True, verbose=False, multilabel_type="norm"
     ):
         self.trade_off = trade_off
         self.set_percentage = set_percentage
@@ -67,6 +67,7 @@ class BaseDetach:
         self.selected_ratio_ = None
         self.feature_mask_ = None
         self.labels_ = None
+        self.labels_val_ = None
         self.acc_train_ = None
 
     # -- Utility helpers -----------------------------------------------------
@@ -207,10 +208,26 @@ class BaseDetach:
         alpha_optimal = None if self.recompute_alpha else self.full_model_alpha_
         self.feature_mask_ = self.importance_matrix_[step_index] > 0
 
+        # After model selection the validation set has served its purpose,
+        # so we combine train + val for the final retraining to maximise
+        # the amount of data seen by the classifier.
+        if self.feature_matrix_val_ is not None and self.labels_val_ is not None:
+            X_retrain = np.concatenate([self.feature_matrix_, self.feature_matrix_val_], axis=0)
+            y_retrain = np.concatenate([self.labels_, self.labels_val_], axis=0)
+
+        else:
+            X_retrain = self.feature_matrix_
+            y_retrain = self.labels_
+
+        # NOTE: ``acc_train_`` is the accuracy of the retrained classifier
+        # evaluated on the combined train + val set (i.e. all the data used
+        # for retraining).  This is *not* directly comparable to
+        # ``train_scores_``, which is recorded during SFD on the training
+        # split only.
         self.classifier_, self.acc_train_ = retrain_optimal_model(
             self.feature_mask_,
-            self.feature_matrix_,
-            self.labels_,
+            X_retrain,
+            y_retrain,
             step_index,
             alpha_optimal,
             verbose=self.verbose,
@@ -393,7 +410,7 @@ class DetachRocket(BaseDetach):
         transformer,
         trade_off=0.1,
         set_percentage=None,
-        recompute_alpha=False,
+        recompute_alpha=True,
         verbose=False,
         multilabel_type="norm",
     ):
@@ -409,6 +426,7 @@ class DetachRocket(BaseDetach):
         # DetachRocket-specific learned attributes
         self.fit_params_ = None
         self.pruned_transformer_ = None
+        self.pruned_scaler_ = None
         self.pruned_feature_matrix_ = None
         self._X_train_raw_ = None
 
@@ -416,8 +434,8 @@ class DetachRocket(BaseDetach):
 
     def _prepare_X(self, X):
         """Transform raw time series into the pruned feature space."""
-        transformed = self.pruned_transformer_.transform(X)
-        return self._to_numpy(transformed)
+        transformed = self._to_numpy(self.pruned_transformer_.transform(X))
+        return self.pruned_scaler_.transform(transformed)
 
     def _prepare_X_full(self, X):
         """Transform raw time series into the full (unpruned) feature space."""
@@ -509,6 +527,7 @@ class DetachRocket(BaseDetach):
         )
 
         self.labels_ = y
+        self.labels_val_ = y_val if use_validation else None
 
         # Decide on the pruning level and retrain
         self._select_pruning_step()
@@ -528,6 +547,16 @@ class DetachRocket(BaseDetach):
         self._log("Initializing pruned transformer with the selected features")
         pruner = get_transformer_pruner(self.transformer)
         self.pruned_transformer_ = pruner.prune_transformer(self.transformer, self.feature_mask_)
+
+        # Build a scaler for the pruned feature space by extracting the
+        # mean and scale of the retained features from the full scaler.
+        self.pruned_scaler_ = StandardScaler()
+        self.pruned_scaler_.mean_ = self.scaler_.mean_[self.feature_mask_]
+        self.pruned_scaler_.scale_ = self.scaler_.scale_[self.feature_mask_]
+        self.pruned_scaler_.var_ = self.scaler_.var_[self.feature_mask_]
+        self.pruned_scaler_.n_features_in_ = int(np.sum(self.feature_mask_))
+        self.pruned_scaler_.n_samples_seen_ = self.scaler_.n_samples_seen_
+
         self.pruned_feature_matrix_ = self._prepare_X(self._X_train_raw_)
 
     def get_summary(self):
@@ -625,7 +654,7 @@ class DetachMatrix(BaseDetach):
     def __init__(
         self,
         trade_off=0.1,
-        recompute_alpha=False,
+        recompute_alpha=True,
         val_ratio=0.33,
         verbose=False,
         multilabel_type="norm",
@@ -722,8 +751,11 @@ class DetachMatrix(BaseDetach):
             X_sfd_test = self.scaler_.transform(X_val)
             y_sfd_test = y_val
             self.feature_matrix_val_ = X_sfd_test
+            self.labels_val_ = y_val
         else:
-            # Auto-split using val_ratio
+            # Auto-split using val_ratio — feature_matrix_ already
+            # contains the full training data, so _retrain_at_step
+            # will naturally retrain on all of it.
             X_sfd_train, X_sfd_test, y_sfd_train, y_sfd_test = train_test_split(
                 self.feature_matrix_,
                 y,

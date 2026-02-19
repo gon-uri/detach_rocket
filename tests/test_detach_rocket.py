@@ -121,6 +121,24 @@ def test_invalid_pruning():
     assert X_pruned.shape[1] == 2, "Expected 2 retained features"
 
 
+def test_pruned_transformer_consistency(detach_rocket, data):
+    """Test that the pruned transformer produces the same features as
+    applying the feature mask to the full transformer output."""
+    detach_rocket.fit(data["X_train"], data["y_train"])
+
+    X = data["X_train"]
+    full_features = np.asarray(detach_rocket.transformer.transform(X))
+    pruned_features = np.asarray(detach_rocket.pruned_transformer_.transform(X))
+    masked_full_features = full_features[:, detach_rocket.feature_mask_]
+
+    assert pruned_features.shape == masked_full_features.shape, (
+        f"Shape mismatch: pruned {pruned_features.shape} vs masked {masked_full_features.shape}"
+    )
+    assert np.allclose(pruned_features, masked_full_features), (
+        "Pruned transformer output does not match masked full transformer output"
+    )
+
+
 def test_get_summary(detach_rocket, data):
     detach_rocket.set_percentage = None
     detach_rocket.fit(data["X_train"], data["y_train"], X_val=data["X_val"], y_val=data["y_val"])
