@@ -118,6 +118,21 @@ Detailed usage examples can be found in the included Jupyter notebooks in the [e
 - [ ] Fully pytorch implementation of ROCKET with on-the-fly convolutions during training.
 - [ ] Pytorch implementation of SFD for Multilayer Perceptrons.
 
+## Troubleshooting
+
+If `pip install` fails while building `llvmlite` (a `numba` dependency), install `numba` via conda first:
+
+```bash
+conda install "numba>=0.58"
+pip install detach_rocket  # or pip install git+https://github.com/gon-uri/detach_rocket
+```
+
+If after this you see an `Intel MKL WARNING` about SSE4.2/AVX (conda installs MKL by default), run:
+
+```bash
+conda install nomkl
+```
+
 ## License
 
 This project is licensed under the BSD-3-Clause License.

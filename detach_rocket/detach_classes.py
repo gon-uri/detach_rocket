@@ -1052,4 +1052,4 @@ class DetachEnsemble:
 
             channel_relevance_matrix[m] = channel_relevance
 
-        return np.median(channel_relevance_matrix, axis=0)
+        return np.mean(channel_relevance_matrix, axis=0) # It used to be the median, but mean is more stable when some models prune all features.
