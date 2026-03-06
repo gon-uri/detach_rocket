@@ -48,8 +48,8 @@ class PytorchMiniRocketMultivariate(nn.Module):
 
     @contextlib.contextmanager
     def _manage_cpu_threads(self):
-        """Context manager to prevent macOS OpenMP CPU deadlocks."""
-        if self.device.type == "cpu" and sys.platform == "darwin":
+        """Context manager to prevent OpenMP CPU deadlocks."""
+        if self.device.type == "cpu":
             original_threads = torch.get_num_threads()
             torch.set_num_threads(1)
             try:

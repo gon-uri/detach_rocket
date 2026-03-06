@@ -1033,10 +1033,7 @@ class DetachEnsemble:
         """
         first_model = self.derockets[0].transformer
         if hasattr(first_model, "device") and first_model.device.type == "cpu":
-            import sys
-            msg = "PyTorch is running on CPU as a GPU was not found."
-            if sys.platform == "darwin":
-                msg += " On macOS, dense operations are restricted to a single thread to prevent OpenMP deadlocks."
+            msg = "PyTorch is running on CPU as a GPU was not found. Dense operations are restricted to a single thread to prevent OpenMP deadlocks."
             warnings.warn(msg, UserWarning)
 
         if self.set_percentage is None:
