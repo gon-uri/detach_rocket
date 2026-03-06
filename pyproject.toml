@@ -31,26 +31,28 @@ classifiers = [
 
 # -- Runtime dependencies ---------------------------------------------------
 dependencies = [
-    "numpy>=1.23",
-    "scikit-learn>=1.3",
-    "sktime>=0.30",
-    "numba>=0.58",
+    "numpy>=1.26.4,<2",      # <2 required for torch 2.2.x compatibility
+    "scikit-learn>=1.7.2",
+    "sktime>=0.40.1",
+    "numba>=0.61.2",
 ]
 
 # -- Optional dependency groups ---------------------------------------------
 [project.optional-dependencies]
 # GPU-accelerated ensemble model (DetachEnsemble / PytorchMiniRocketMultivariate)
-torch = ["torch>=2.0"]
+torch = ["torch>=2.2.2"]
 # Dataset download utilities (utils_datasets.py)
-datasets = ["scipy>=1.10", "pyts>=0.13"]
+datasets = ["scipy>=1.17.1", "pyts>=0.13.0"]
+# Jupyter notebook examples
+examples = ["matplotlib>=3.10.8", "ipykernel>=7.2.0"]
 # Development / testing
 dev = [
-    "pytest>=8.0",
-    "ruff>=0.4",
+    "pytest>=9.0.2",
+    "ruff>=0.15.4",
 ]
 # Install everything
 all = [
-    "detach_rocket[torch,datasets,dev]",
+    "detach_rocket[torch,datasets,examples,dev]",
 ]
 
 [project.urls]

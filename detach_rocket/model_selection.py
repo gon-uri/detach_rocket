@@ -55,7 +55,6 @@ def retrain_optimal_model(
     feature_mask,
     X_train_scaled_transform,
     y_train,
-    max_index,
     model_alpha=None,
     verbose=False,
 ):
@@ -70,8 +69,6 @@ def retrain_optimal_model(
         Training feature matrix with shape (n_instances, n_features).
     y_train: numpy array
         Training labels.
-    max_index: int
-        Index of the optimal SFD step.
     model_alpha: float
         Fixed alpha to use. If None, alpha is recomputed by CV.
     verbose: bool

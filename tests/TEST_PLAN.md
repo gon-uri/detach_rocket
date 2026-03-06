@@ -61,7 +61,7 @@ assert pruned_features.shape[1] == np.sum(mask)
 ```
 
 ### 4c. Pruned output matches full output at retained indices
-Transform with full Rocket, select columns by mask; transform with PrunedRocket.
+Transform with full Rocket, select columns by mask; transform with PrunedRocketTransformer.
 Results should be equal (or very close).
 
 ### 4d. Invalid transformer raises ValueError

@@ -42,13 +42,19 @@ def get_transformer_pruner(transformer):
     """
     if isinstance(transformer, Rocket):
         return RocketTransformerPruner()
-    # elif isinstance(transformer, MiniRocketTransformer):
-    #     return MiniRocketTransformerPruner()
-    else:
-        return GenericTransformerPruner()
+
+    try:
+        from detach_rocket.transformer_models import CudaMiniRocketMultivariate
+
+        if isinstance(transformer, CudaMiniRocketMultivariate):
+            return CudaMiniRocketTransformerPruner()
+    except ImportError:
+        pass
+
+    return GenericTransformerPruner()
 
 
-class PrunedRocket(Rocket):
+class PrunedRocketTransformer(Rocket):
     """A pruned Rocket transformer that outputs only retained features.
 
     Inherits from :class:`~sktime.transformations.panel.rocket.Rocket`
@@ -76,6 +82,131 @@ class PrunedRocket(Rocket):
         X_transf = super().transform(X)
         X_transf = X_transf.to_numpy()
         return X_transf[:, self.features_mask]
+
+
+class PrunedCudaMiniRocketTransformer:
+    """Pruned CudaMiniRocketMultivariate that skips fully-pruned dilations.
+
+    Holds a reference to the original fitted transformer and a per-dilation
+    feature mask.  During :meth:`transform`, dilations whose features have
+    been entirely pruned are skipped, saving GPU computation.  Within
+    retained dilations the full 84 × q_i block is computed, then masked.
+
+    Parameters
+    ----------
+    original : CudaMiniRocketMultivariate
+        A **fitted** CudaMiniRocketMultivariate instance.
+    feature_mask : np.ndarray of bool
+        Overall boolean mask of length ``original.num_features``.
+    dilation_masks : dict of {int: np.ndarray of bool}
+        Per-dilation boolean masks (dilation index → mask).
+    retained_dilation_indices : list of int
+        Indices of dilations that have at least one retained feature.
+    num_kernels : int
+        Number of unique base kernels (0–83) with at least one retained
+        feature across all dilations.
+    """
+
+    def __init__(self, original, feature_mask, dilation_masks, retained_dilation_indices, num_kernels):
+        self.original = original
+        self.feature_mask = feature_mask
+        self.dilation_masks = dilation_masks
+        self.retained_dilation_indices = retained_dilation_indices
+        self.num_kernels = num_kernels
+
+    def transform(self, X, chunksize=128):
+        """Transform *X* and return only the retained feature columns.
+
+        Replicates the chunking logic of
+        :meth:`CudaMiniRocketMultivariate.transform` but delegates
+        per-chunk computation to :meth:`_forward`, which skips pruned
+        dilations.
+
+        Parameters
+        ----------
+        X : array-like of shape (N, C, L)
+            Input time series.
+        chunksize : int, default=128
+            Number of instances per GPU batch.
+
+        Returns
+        -------
+        out : np.ndarray of shape (N, n_retained_features)
+        """
+        orig = self.original
+        shape = orig._shape_of(X)
+        if len(shape) != 3:
+            raise ValueError(f"Expected X with shape (N,C,L), got {shape}")
+
+        N = int(shape[0])
+        if chunksize is None:
+            chunksize = N
+        chunksize = int(chunksize)
+
+        out_chunks = []
+        for start in range(0, N, chunksize):
+            stop = min(N, start + chunksize)
+            chunk = orig._slice_first_axis(X, start, stop)
+            out_chunks.append(self._forward(chunk))
+        return np.concatenate(out_chunks, axis=0)
+
+    def _forward(self, x):
+        """Compute pruned MiniRocket features for a single batch.
+
+        Only retained dilations are computed on the GPU.  Within each
+        retained dilation, the full 84 × q_i feature block is produced
+        and then column-masked.
+        """
+        import cupy as cp
+
+        orig = self.original
+        x_cp = orig._to_cupy_float32(x)
+        B = int(x_cp.shape[0])
+
+        outputs = []
+        for i in self.retained_dilation_indices:
+            dilation = int(orig.dilations[i])
+            padding = int(orig.padding[i])
+            q_i = int(orig.num_features_per_dilation[i])
+            parity = int(i & 1)
+
+            biases_i_cp = cp.asarray(orig.biases[i], dtype=cp.float32)
+            packed = orig._packed_channels[i]
+
+            # Kernel order matches the parity-split used by forward()
+            order = np.array(
+                [k for k in range(orig.num_kernels) if (k & 1) == parity]
+                + [k for k in range(orig.num_kernels) if (k & 1) != parity],
+                dtype=np.int32,
+            )
+            order_cp = cp.asarray(order, dtype=cp.int32)
+
+            out_i = cp.empty((B, orig.num_kernels * q_i), dtype=cp.float32)
+            orig._ppv_transform_cuda(
+                X_cp=x_cp,
+                W_cp=orig._base_kernels_cp,
+                packed_channels=packed,
+                BIAS_cp=biases_i_cp,
+                dilation=dilation,
+                padding=padding,
+                q=q_i,
+                parity=parity,
+                korder_cp=order_cp,
+                OUT_cp=out_i,
+            )
+
+            # Apply per-dilation feature mask
+            dil_mask = self.dilation_masks[i]
+            if not np.all(dil_mask):
+                out_i = out_i[:, cp.asarray(dil_mask)]
+
+            outputs.append(out_i)
+
+        if outputs:
+            feats = cp.concatenate(outputs, axis=1)
+        else:
+            feats = cp.empty((B, 0), dtype=cp.float32)
+        return cp.asnumpy(feats)
 
 
 class TransformerPruner(ABC):
@@ -186,7 +317,7 @@ class RocketTransformerPruner(TransformerPruner):
 
     Extracts the kernel parameters (weights, biases, dilations, paddings,
     channel indices) corresponding to retained features and builds a
-    :class:`PrunedRocket` instance.
+    :class:`PrunedRocketTransformer` instance.
     """
 
     def prune_transformer(self, original_trf, optimal_feature_mask):
@@ -202,7 +333,7 @@ class RocketTransformerPruner(TransformerPruner):
 
         Returns
         -------
-        pruned_trf : PrunedRocket
+        pruned_trf : PrunedRocketTransformer
 
         Raises
         ------
@@ -253,7 +384,7 @@ class RocketTransformerPruner(TransformerPruner):
             b1 = a1 + (_num_channels_indices * _length)
             b2 = a2 + _num_channels_indices
 
-            # optimal_feature_maske i or i+1 should be selected
+            # optimal_feature_mask: i or i+1 should be selected
             if optimal_feature_mask[2 * i] or optimal_feature_mask[2 * i + 1]:
                 retained_mask[2 * i_retained] = optimal_feature_mask[2 * i]
                 retained_mask[2 * i_retained + 1] = optimal_feature_mask[2 * i + 1]
@@ -278,7 +409,7 @@ class RocketTransformerPruner(TransformerPruner):
         retained_channel_indices = retained_channel_indices[:a2_retained]
 
         # define new retained transformation
-        pruned_trf = PrunedRocket(retained_num_kernels, retained_mask)
+        pruned_trf = PrunedRocketTransformer(retained_num_kernels, retained_mask)
         # define kernels, they will not exist if it was not fit. They are tuple
         pruned_trf.kernels = (
             retained_weights,
@@ -291,3 +422,75 @@ class RocketTransformerPruner(TransformerPruner):
         )
 
         return pruned_trf
+
+
+class CudaMiniRocketTransformerPruner(TransformerPruner):
+    """Pruner for :class:`~detach_rocket.transformer_models.CudaMiniRocketMultivariate`.
+
+    Splits the feature mask into per-dilation chunks, identifies which
+    dilations can be skipped entirely, and builds a
+    :class:`PrunedCudaMiniRocketTransformer` that only computes retained
+    dilations on the GPU.
+    """
+
+    def prune_transformer(self, original_transformer, optimal_feature_mask):
+        """Create a pruned CudaMiniRocket transformer.
+
+        Parameters
+        ----------
+        original_transformer : CudaMiniRocketMultivariate
+            A **fitted** CudaMiniRocketMultivariate instance.
+        optimal_feature_mask : np.ndarray of bool
+            Boolean mask of length ``original_transformer.num_features``.
+
+        Returns
+        -------
+        pruned_trf : PrunedCudaMiniRocketTransformer
+
+        Raises
+        ------
+        ValueError
+            If *original_transformer* has not been fitted, or if the
+            mask size does not match the transformer's feature count.
+        """
+        if not getattr(original_transformer, "prefit", False):
+            raise ValueError("Transformer must be fit before pruning.")
+
+        mask = _normalize_feature_mask(optimal_feature_mask)
+
+        expected_size = original_transformer.num_features
+        if mask.size != expected_size:
+            raise ValueError(
+                "CudaMiniRocket feature mask size mismatch: "
+                f"expected {expected_size} features, got {mask.size}."
+            )
+
+        num_dilations = original_transformer.num_dilations
+        num_kernels_per_dilation = original_transformer.num_kernels  # 84
+
+        # Split overall mask into per-dilation chunks
+        dilation_masks = {}
+        offset = 0
+        for i in range(num_dilations):
+            block_size = num_kernels_per_dilation * int(original_transformer.num_features_per_dilation[i])
+            dilation_masks[i] = mask[offset:offset + block_size]
+            offset += block_size
+
+        # Identify dilations with at least one retained feature
+        retained_dilation_indices = [i for i in range(num_dilations) if np.any(dilation_masks[i])]
+
+        # Count unique base kernels (0-83) with at least one retained feature
+        retained_kernel_ids = set()
+        for i in retained_dilation_indices:
+            k_indices = original_transformer.kernel_indices[i]
+            retained_in_block = k_indices[dilation_masks[i]]
+            for kid in retained_in_block:
+                retained_kernel_ids.add(int(kid))
+
+        return PrunedCudaMiniRocketTransformer(
+            original=original_transformer,
+            feature_mask=mask,
+            dilation_masks=dilation_masks,
+            retained_dilation_indices=retained_dilation_indices,
+            num_kernels=len(retained_kernel_ids),
+        )

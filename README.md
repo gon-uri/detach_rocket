@@ -114,9 +114,8 @@ Detailed usage examples can be found in the included Jupyter notebooks in the [e
 - [x] Add channel releavance for Detach-MiniRocket. (DONE!)
 - [x] Implementation of Detach-ROCKET Ensemble. (DONE!)
 - [x] Add channel releavance and label probability for Detach-ROCKET Ensemble. (DONE!)
-- [ ] Pytorch implementations of Detach-MultiRocket. (Coming soon...)
-- [ ] Fully pytorch implementation of ROCKET with on-the-fly convolutions during training.
-- [ ] Pytorch implementation of SFD for Multilayer Perceptrons.
+- [x] CUDA implementations of Detach-MiniRocket. (DONE!)
+- [x] Real pruning of ROCKET model for faster inference. (DONE!)
 
 ## Troubleshooting
 

@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 from sktime.transformations.panel.rocket import Rocket
 
 from detach_rocket.detach_classes import DetachRocket
-from detach_rocket.pruner import PrunedRocket, get_transformer_pruner
+from detach_rocket.pruner import PrunedRocketTransformer, get_transformer_pruner
 
 
 @pytest.fixture(scope="module")
@@ -82,9 +82,9 @@ def test_rocket_pruner(detach_rocket, data):
     # Call fit to initialize the pruned transformer
     detach_rocket.fit(data["X_train"], data["y_train"])
 
-    # Assert that the pruned transformer is an instance of PrunedRocket
+    # Assert that the pruned transformer is an instance of PrunedRocketTransformer
     pruned_transformer = detach_rocket.pruned_transformer_
-    assert isinstance(pruned_transformer, PrunedRocket), "Pruned transformer should be a Rocket instance"
+    assert isinstance(pruned_transformer, PrunedRocketTransformer), "Pruned transformer should be a Rocket instance"
 
     # Assert that the pruned transformer has the correct number of kernels
     retained_num_kernels = np.sum(detach_rocket.feature_mask_[0::2] | detach_rocket.feature_mask_[1::2])

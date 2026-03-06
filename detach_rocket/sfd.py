@@ -32,7 +32,8 @@ def feature_detachment(
     drop_ratio: float
         Proportion of features dropped at each step of the detachment process.
     num_steps: int
-        Total number of detachment steps performed during SFD.
+        Maximum number of detachment steps (actual steps may be fewer
+        when the feature count is small).
     multilabel_type: str
         Method to calculate feature importance for multiclass classification.
     verbose: bool
@@ -55,7 +56,7 @@ def feature_detachment(
     multilabel_methods = {
         "norm": lambda coef: np.linalg.norm(coef, axis=0, ord=2),
         "max": lambda coef: np.linalg.norm(coef, axis=0, ord=np.inf),
-        "avg": lambda coef: np.linalg.norm(coef, axis=0, ord=1),
+        "avg": lambda coef: np.linalg.norm(coef, axis=0, ord=1),  # L1 norm (sum of abs values)
     }
 
     total_features = X_train.shape[1]
@@ -106,7 +107,7 @@ def feature_detachment(
 
         if verbose:
             current_percentage = retained_ratios[count] * 100
-            print(f"Step {count + 1} out of {num_steps}: {current_percentage:.2f}% of features used")
+            print(f"Step {count + 1} out of {len(retained_features)}: {current_percentage:.2f}% of features used")
 
     if score_list_test is not None:
         score_list_test = np.asarray(score_list_test)

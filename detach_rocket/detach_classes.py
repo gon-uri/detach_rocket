@@ -2,6 +2,8 @@
 Detach-ROCKET model classes.
 """
 
+import warnings
+
 import numpy as np
 from sklearn.linear_model import RidgeClassifier, RidgeClassifierCV
 from sklearn.model_selection import train_test_split
@@ -10,6 +12,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from detach_rocket.model_selection import retrain_optimal_model, select_optimal_pruning
 from detach_rocket.pruner import get_transformer_pruner
 from detach_rocket.sfd import feature_detachment
+
 
 
 class BaseDetach:
@@ -30,7 +33,7 @@ class BaseDetach:
         If set, forces a fixed pruning level (percentage of features to
         retain, e.g. ``50`` means 50 %).  When not *None*, ``trade_off`` is
         ignored and no validation set is needed for model selection.
-    recompute_alpha : bool, default=False
+    recompute_alpha : bool, default=True
         Whether to re-estimate the Ridge regularization parameter (alpha) by
         cross-validation after pruning.  If *False*, the alpha found on the
         full model is reused.
@@ -228,7 +231,6 @@ class BaseDetach:
             self.feature_mask_,
             X_retrain,
             y_retrain,
-            step_index,
             alpha_optimal,
             verbose=self.verbose,
         )
@@ -331,6 +333,73 @@ class BaseDetach:
         return float(self.acc_train_) if self.acc_train_ is not None else None
 
 
+class PrunedRocketModel:
+    """Lightweight pruned model for inference only.
+
+    Contains only the pruned transformer, its scaler, and the retrained
+    classifier — the minimum needed to predict on new time series.
+    Returned by :meth:`DetachRocket.detach`.
+
+    Parameters
+    ----------
+    transformer : object
+        A pruned ROCKET-family transformer with a ``transform(X)`` method.
+    scaler : StandardScaler
+        Scaler fitted on the pruned feature space.
+    classifier : RidgeClassifier
+        Classifier trained on the pruned, scaled features.
+
+    Examples
+    --------
+    >>> model = DetachRocket(transformer=rocket, trade_off=0.1)
+    >>> model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+    >>> pruned = model.detach()
+    >>> y_pred = pruned.predict(X_test)
+    """
+
+    def __init__(self, transformer, scaler, classifier):
+        self.transformer = transformer
+        self.scaler = scaler
+        self.classifier = classifier
+
+    def predict(self, X):
+        """Predict class labels for *X*.
+
+        Parameters
+        ----------
+        X : array-like
+            Raw time series in the same format used during training.
+
+        Returns
+        -------
+        y_pred : np.ndarray of shape (n_samples,)
+        """
+        transformed = self.transformer.transform(X)
+        if hasattr(transformed, "to_numpy"):
+            transformed = transformed.to_numpy()
+        else:
+            transformed = np.asarray(transformed)
+        scaled = self.scaler.transform(transformed)
+        return self.classifier.predict(scaled)
+
+    def score(self, X, y):
+        """Return the classification accuracy on (*X*, *y*).
+
+        Parameters
+        ----------
+        X : array-like
+            Raw time series.
+        y : array-like of shape (n_samples,)
+            True labels.
+
+        Returns
+        -------
+        accuracy : float
+        """
+        y_pred = self.predict(X)
+        return np.mean(y_pred == y)
+
+
 class DetachRocket(BaseDetach):
     """End-to-end Detach-ROCKET model for time-series classification.
 
@@ -351,7 +420,7 @@ class DetachRocket(BaseDetach):
     set_percentage : float or None, default=None
         If set, forces a fixed pruning level (percentage of features to
         retain).  When not *None*, ``trade_off`` is ignored.
-    recompute_alpha : bool, default=False
+    recompute_alpha : bool, default=True
         Whether to re-estimate Ridge alpha by CV after pruning.
     verbose : bool, default=False
         Print progress messages during fitting.
@@ -374,7 +443,7 @@ class DetachRocket(BaseDetach):
         Regularization alpha selected on the full model.
     feature_mask_ : np.ndarray of bool
         Boolean mask indicating which features are retained.
-    pruned_transformer_ : PrunedRocket
+    pruned_transformer_ : PrunedRocketTransformer
         Transformer that directly produces only the retained features.
     retained_ratios_ : np.ndarray
         Proportion of features retained at each SFD step.
@@ -495,6 +564,7 @@ class DetachRocket(BaseDetach):
 
         self._log("Applying Data Transformation")
         self.feature_matrix_ = self._to_numpy(self.transformer.fit_transform(X))
+
         self.feature_matrix_ = self.scaler_.fit_transform(self.feature_matrix_)
 
         use_validation = self.set_percentage is None and X_val is not None and y_val is not None
@@ -531,6 +601,7 @@ class DetachRocket(BaseDetach):
 
         # Decide on the pruning level and retrain
         self._select_pruning_step()
+
         self._retrain_at_step(self.selected_step_index_)
         self.is_fitted_ = True
 
@@ -558,6 +629,36 @@ class DetachRocket(BaseDetach):
         self.pruned_scaler_.n_samples_seen_ = self.scaler_.n_samples_seen_
 
         self.pruned_feature_matrix_ = self._prepare_X(self._X_train_raw_)
+
+    def detach(self):
+        """Return a lightweight :class:`PrunedRocketModel` for inference.
+
+        The returned object contains only the pruned transformer, its
+        scaler, and the retrained classifier — the minimum needed to
+        call ``predict`` on new data.
+
+        Returns
+        -------
+        pruned_model : PrunedRocketModel
+
+        Raises
+        ------
+        ValueError
+            If the model has not been fitted yet.
+
+        Examples
+        --------
+        >>> model = DetachRocket(transformer=rocket, trade_off=0.1)
+        >>> model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+        >>> pruned = model.detach()
+        >>> y_pred = pruned.predict(X_test)
+        """
+        self._require_fitted()
+        return PrunedRocketModel(
+            transformer=self.pruned_transformer_,
+            scaler=self.pruned_scaler_,
+            classifier=self.classifier_,
+        )
 
     def get_summary(self):
         """Return a dictionary summarizing the fitted model.
@@ -592,7 +693,7 @@ class DetachMatrix(BaseDetach):
     set_percentage : float or None, default=None
         If set, forces a fixed pruning level (percentage of features to
         retain).  When not *None*, ``trade_off`` is ignored.
-    recompute_alpha : bool, default=False
+    recompute_alpha : bool, default=True
         Whether to re-estimate Ridge alpha by CV after pruning.
     val_ratio : float, default=0.33
         Fraction of the training data used for validation when no
@@ -654,11 +755,11 @@ class DetachMatrix(BaseDetach):
     def __init__(
         self,
         trade_off=0.1,
+        set_percentage=None,
         recompute_alpha=True,
         val_ratio=0.33,
         verbose=False,
         multilabel_type="norm",
-        set_percentage=None,
     ):
         super().__init__(
             trade_off=trade_off,
@@ -794,18 +895,17 @@ class DetachEnsemble:
     """Ensemble of Detach-ROCKET models for multivariate time series.
 
     Creates multiple :class:`DetachRocket` models — each with an
-    independently randomized :class:`PytorchMiniRocketMultivariate`
-    transformer — fits them independently, and combines their predictions
-    via soft or hard voting.  Also provides channel-relevance estimation
-    for multivariate data.
+    independently randomized MiniRocket transformer — fits them
+    independently, and combines their predictions via soft or hard
+    voting.  Also provides channel-relevance estimation for
+    multivariate data.
 
     Parameters
     ----------
     num_models : int, default=25
         Number of Detach-ROCKET models in the ensemble.
     num_kernels : int, default=10_000
-        Number of kernels for each underlying
-        :class:`PytorchMiniRocketMultivariate` transformer.
+        Number of kernels for each underlying MiniRocket transformer.
     trade_off : float, default=0.1
         Trade-off parameter passed to each :class:`DetachRocket`.
     set_percentage : float or None, default=None
@@ -824,6 +924,11 @@ class DetachEnsemble:
         feature-importance vector.  Forwarded to each inner
         :class:`DetachRocket`.  One of ``"norm"`` (L2), ``"max"``
         (L∞), or ``"avg"`` (L1).
+    backend : {'cuda', 'pytorch'}, default='cuda'
+        Which MiniRocket implementation to use as the transformer.
+        ``'cuda'`` uses :class:`CudaMiniRocketMultivariate` (requires
+        CuPy + CUDA), ``'pytorch'`` uses
+        :class:`PytorchMiniRocketMultivariate` (requires PyTorch).
 
     Attributes
     ----------
@@ -851,6 +956,8 @@ class DetachEnsemble:
            arXiv:2408.02760.
     """
 
+    _BACKENDS = ("cuda", "pytorch")
+
     def __init__(
         self,
         num_models=25,
@@ -861,13 +968,15 @@ class DetachEnsemble:
         val_ratio=0.33,
         verbose=False,
         multilabel_type="norm",
+        backend="cuda",
     ):
-        try:
-            from detach_rocket.transformer_models import PytorchMiniRocketMultivariate
-        except ImportError as exc:
-            raise ImportError(
-                "DetachEnsemble requires PyTorch. Install it with: pip install detach_rocket[torch]"
-            ) from exc
+        backend = backend.lower()
+        if backend not in self._BACKENDS:
+            raise ValueError(
+                f"Unknown backend '{backend}'. Choose from {self._BACKENDS}."
+            )
+
+        TransformerClass = self._get_transformer_class(backend)
 
         self.num_models = num_models
         self.num_kernels = num_kernels
@@ -877,22 +986,33 @@ class DetachEnsemble:
         self.val_ratio = val_ratio
         self.verbose = verbose
         self.multilabel_type = multilabel_type
+        self.backend = backend
 
         self.derockets = []
         for _ in range(num_models):
-            transformer = PytorchMiniRocketMultivariate(num_features=num_kernels)
+            transformer = TransformerClass(num_features=num_kernels)
             model = DetachRocket(
                 transformer=transformer,
                 trade_off=trade_off,
                 set_percentage=set_percentage,
                 recompute_alpha=recompute_alpha,
-                verbose=verbose,
+                verbose=(verbose > 1) if isinstance(verbose, int) and not isinstance(verbose, bool) else False,
                 multilabel_type=multilabel_type,
             )
             self.derockets.append(model)
 
         self.label_encoder = LabelEncoder()
         self.is_fitted_ = False
+
+    @staticmethod
+    def _get_transformer_class(backend: str):
+        """Import and return the transformer class for the given backend."""
+        if backend == "cuda":
+            from detach_rocket.cuda_minirocket import CudaMiniRocketMultivariate
+            return CudaMiniRocketMultivariate
+        else:  # "pytorch"
+            from detach_rocket.pytorch_minirocket import PytorchMiniRocketMultivariate
+            return PytorchMiniRocketMultivariate
 
     def fit(self, X, y):
         """Fit all ensemble members on the training data.
@@ -910,9 +1030,15 @@ class DetachEnsemble:
             Training labels.
 
         Returns
-        -------
-        self
         """
+        first_model = self.derockets[0].transformer
+        if hasattr(first_model, "device") and first_model.device.type == "cpu":
+            import sys
+            msg = "PyTorch is running on CPU as a GPU was not found."
+            if sys.platform == "darwin":
+                msg += " On macOS, dense operations are restricted to a single thread to prevent OpenMP deadlocks."
+            warnings.warn(msg, UserWarning)
+
         if self.set_percentage is None:
             X_train, X_val, y_train, y_val = train_test_split(
                 X,
@@ -925,8 +1051,13 @@ class DetachEnsemble:
             X_train, y_train = X, y
             X_val, y_val = None, None
 
-        for model in self.derockets:
+        for idx, model in enumerate(self.derockets):
+            if self.verbose:
+                print(f"\rFitting Detach-ROCKET models: {idx + 1}/{self.num_models}...", end="", flush=True)
             model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+
+        if self.verbose:
+            print() # Clear the line after completion
 
         self.num_channels = X.shape[1]
         self.label_encoder.fit(y)
@@ -1013,7 +1144,7 @@ class DetachEnsemble:
     def estimate_channel_relevance(self):
         """Estimate the relevance of each input channel.
 
-        Computes a median relevance score across all ensemble members
+        Computes a mean relevance score across all ensemble members
         by distributing each feature's importance to the channels used
         by its corresponding kernel.
 
@@ -1052,4 +1183,5 @@ class DetachEnsemble:
 
             channel_relevance_matrix[m] = channel_relevance
 
-        return np.mean(channel_relevance_matrix, axis=0) # It used to be the median, but mean is more stable when some models prune all features.
+        # Mean is preferred over median: more stable when some models prune all features.
+        return np.mean(channel_relevance_matrix, axis=0)
