@@ -1031,10 +1031,11 @@ class DetachEnsemble:
 
         Returns
         """
-        first_model = self.derockets[0].transformer
-        if hasattr(first_model, "device") and first_model.device.type == "cpu":
-            msg = "PyTorch is running on CPU as a GPU was not found. Dense operations are restricted to a single thread to prevent OpenMP deadlocks."
-            warnings.warn(msg, UserWarning)
+        if self.backend == "pytorch":
+            first_model = self.derockets[0].transformer
+            if hasattr(first_model, "device") and first_model.device.type == "cpu":
+                msg = "PyTorch is running on CPU as a GPU was not found. Dense operations are restricted to a single thread to prevent OpenMP deadlocks."
+                warnings.warn(msg, UserWarning)
 
         if self.set_percentage is None:
             X_train, X_val, y_train, y_val = train_test_split(
