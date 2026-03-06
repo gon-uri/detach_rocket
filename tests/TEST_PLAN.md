@@ -21,7 +21,7 @@ assert (feature_matrix[5, 5:] == 0).all()
 ### 1b. SFD without validation set
 Call with `X_test=None, y_test=None` — should return `None` for test scores.
 
-### 1c. Multi-class (multilabel_type variants)
+### 1c. Multi-class (multiclass_type variants)
 Test with 3+ classes, verify `"norm"`, `"max"`, `"avg"` all run without error.
 
 ### 1d. sklearn compat (binary classification)

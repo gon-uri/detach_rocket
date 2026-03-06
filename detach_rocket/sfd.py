@@ -11,7 +11,7 @@ def feature_detachment(
     y_test: np.ndarray = None,
     drop_ratio: float = 0.05,
     num_steps: int = 150,
-    multilabel_type: str = "norm",
+    multiclass_type: str = "norm",
     verbose: bool = False,
 ):
     """
@@ -34,7 +34,7 @@ def feature_detachment(
     num_steps: int
         Maximum number of detachment steps (actual steps may be fewer
         when the feature count is small).
-    multilabel_type: str
+    multiclass_type: str
         Method to calculate feature importance for multiclass classification.
     verbose: bool
         If true, print progress during the detachment process.
@@ -53,7 +53,7 @@ def feature_detachment(
     if not hasattr(classifier, "coef_"):
         classifier.fit(X_train, y_train)
 
-    multilabel_methods = {
+    multiclass_methods = {
         "norm": lambda coef: np.linalg.norm(coef, axis=0, ord=2),
         "max": lambda coef: np.linalg.norm(coef, axis=0, ord=np.inf),
         "avg": lambda coef: np.linalg.norm(coef, axis=0, ord=1),  # L1 norm (sum of abs values)
@@ -76,9 +76,9 @@ def feature_detachment(
     # In sklearn >=1.6.1, binary classification coef_ is (n_features,) instead of
     # (1, n_features). Multi-class remains (n_classes, n_features).
     if len(np.shape(classifier.coef_)) > 1:
-        if multilabel_type not in multilabel_methods:
-            raise ValueError('Invalid multilabel_type argument. Choose from: "norm", "max", or "avg".')
-        calc_feature_importance = multilabel_methods[multilabel_type]
+        if multiclass_type not in multiclass_methods:
+            raise ValueError('Invalid multiclass_type. Choose from: "norm", "max", or "avg".')
+        calc_feature_importance = multiclass_methods[multiclass_type]
     else:
         def calc_feature_importance(coef):
             return np.abs(coef).ravel()

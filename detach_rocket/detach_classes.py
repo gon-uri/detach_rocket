@@ -39,20 +39,20 @@ class BaseDetach:
         full model is reused.
     verbose : bool, default=False
         If *True*, print progress messages during fitting.
-    multilabel_type : str, default="norm"
+    multiclass_type : str, default="norm"
         Method to aggregate multi-class Ridge coefficients into a single
         feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
         (L∞), or ``"avg"`` (L1).
     """
 
     def __init__(
-        self, trade_off=0.1, set_percentage=None, recompute_alpha=True, verbose=False, multilabel_type="norm"
+        self, trade_off=0.1, set_percentage=None, recompute_alpha=True, verbose=False, multiclass_type="norm"
     ):
         self.trade_off = trade_off
         self.set_percentage = set_percentage
         self.recompute_alpha = recompute_alpha
         self.verbose = verbose
-        self.multilabel_type = multilabel_type
+        self.multiclass_type = multiclass_type
 
         # Learned attributes (set during fit)
         self.is_fitted_ = False
@@ -424,7 +424,7 @@ class DetachRocket(BaseDetach):
         Whether to re-estimate Ridge alpha by CV after pruning.
     verbose : bool, default=False
         Print progress messages during fitting.
-    multilabel_type : str, default="norm"
+    multiclass_type : str, default="norm"
         Method to aggregate multi-class Ridge coefficients into a single
         feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
         (L∞), or ``"avg"`` (L1).
@@ -481,14 +481,14 @@ class DetachRocket(BaseDetach):
         set_percentage=None,
         recompute_alpha=True,
         verbose=False,
-        multilabel_type="norm",
+        multiclass_type="norm",
     ):
         super().__init__(
             trade_off=trade_off,
             set_percentage=set_percentage,
             recompute_alpha=recompute_alpha,
             verbose=verbose,
-            multilabel_type=multilabel_type,
+            multiclass_type=multiclass_type,
         )
         self.transformer = transformer
 
@@ -551,7 +551,7 @@ class DetachRocket(BaseDetach):
             Extra keyword arguments forwarded to
             :func:`~detach_rocket.sfd.feature_detachment` (e.g.
             ``drop_ratio``, ``num_steps``).  ``verbose`` and
-            ``multilabel_type`` are already passed from ``self``.
+            ``multiclass_type`` are already passed from ``self``.
 
         Returns
         -------
@@ -592,7 +592,7 @@ class DetachRocket(BaseDetach):
             y_train=y,
             y_test=y_val if use_validation else None,
             verbose=self.verbose,
-            multilabel_type=self.multilabel_type,
+            multiclass_type=self.multiclass_type,
             **kwargs,
         )
 
@@ -700,7 +700,7 @@ class DetachMatrix(BaseDetach):
         explicit validation set is provided.
     verbose : bool, default=False
         Print progress messages during fitting.
-    multilabel_type : str, default="norm"
+    multiclass_type : str, default="norm"
         Method to aggregate multi-class Ridge coefficients into a single
         feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
         (L∞), or ``"avg"`` (L1).
@@ -759,14 +759,14 @@ class DetachMatrix(BaseDetach):
         recompute_alpha=True,
         val_ratio=0.33,
         verbose=False,
-        multilabel_type="norm",
+        multiclass_type="norm",
     ):
         super().__init__(
             trade_off=trade_off,
             set_percentage=set_percentage,
             recompute_alpha=recompute_alpha,
             verbose=verbose,
-            multilabel_type=multilabel_type,
+            multiclass_type=multiclass_type,
         )
         self.val_ratio = val_ratio
 
@@ -812,7 +812,7 @@ class DetachMatrix(BaseDetach):
             Extra keyword arguments forwarded to
             :func:`~detach_rocket.sfd.feature_detachment` (e.g.
             ``drop_ratio``, ``num_steps``).  ``verbose`` and
-            ``multilabel_type`` are already passed from ``self``.
+            ``multiclass_type`` are already passed from ``self``.
 
         Returns
         -------
@@ -878,7 +878,7 @@ class DetachMatrix(BaseDetach):
             X_test=X_sfd_test,
             y_test=y_sfd_test,
             verbose=self.verbose,
-            multilabel_type=self.multilabel_type,
+            multiclass_type=self.multiclass_type,
             **kwargs,
         )
 
@@ -919,7 +919,7 @@ class DetachEnsemble:
         model (only used when ``set_percentage`` is *None*).
     verbose : bool, default=False
         Print progress messages.
-    multilabel_type : str, default="norm"
+    multiclass_type : str, default="norm"
         Method to aggregate multi-class Ridge coefficients into a single
         feature-importance vector.  Forwarded to each inner
         :class:`DetachRocket`.  One of ``"norm"`` (L2), ``"max"``
@@ -967,7 +967,7 @@ class DetachEnsemble:
         recompute_alpha=True,
         val_ratio=0.33,
         verbose=False,
-        multilabel_type="norm",
+        multiclass_type="norm",
         backend="cuda",
     ):
         backend = backend.lower()
@@ -985,7 +985,7 @@ class DetachEnsemble:
         self.recompute_alpha = recompute_alpha
         self.val_ratio = val_ratio
         self.verbose = verbose
-        self.multilabel_type = multilabel_type
+        self.multiclass_type = multiclass_type
         self.backend = backend
 
         self.derockets = []
@@ -997,7 +997,7 @@ class DetachEnsemble:
                 set_percentage=set_percentage,
                 recompute_alpha=recompute_alpha,
                 verbose=(verbose > 1) if isinstance(verbose, int) and not isinstance(verbose, bool) else False,
-                multilabel_type=multilabel_type,
+                multiclass_type=multiclass_type,
             )
             self.derockets.append(model)
 
