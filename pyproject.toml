@@ -31,8 +31,14 @@ classifiers = [
 
 # -- Runtime dependencies ---------------------------------------------------
 dependencies = [
+    # Support both NumPy 1.26+ and NumPy 2.x while staying within the tested
+    # compatibility range of the current time-series/scientific Python stack.
     "numpy>=1.26.4,<2.5",
-    "scikit-learn>=1.7.2",
+
+    # Match sktime's supported scikit-learn range explicitly, instead of
+    # relying on pip to discover this transitive constraint during resolution.
+    "scikit-learn>=1.7.2,<1.8",
+
     "sktime>=0.40.1",
     "numba>=0.61.2",
 ]
