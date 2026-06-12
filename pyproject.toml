@@ -31,7 +31,7 @@ classifiers = [
 
 # -- Runtime dependencies ---------------------------------------------------
 dependencies = [
-    "numpy>=1.26.4,<2",      # <2 required for torch 2.2.x compatibility
+    "numpy>=1.26.4,<2.5",
     "scikit-learn>=1.7.2",
     "sktime>=0.40.1",
     "numba>=0.61.2",
