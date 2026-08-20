@@ -203,16 +203,22 @@ class PytorchMiniRocketMultivariate(nn.Module):
 
             # Channel combinations: num_dilations * num_kernel, where each combination has self.c_in indices
             elif which == "channels":
-                channel_combinations = getattr(self, f"channel_combinations_{i}")
+                if self.c_in == 1:
+                    # Univariate: no channel combinations are drawn during fit;
+                    # every kernel uses the single channel 0.
+                    for _ in range(num_quantiles):
+                        full_features = np.append(full_features, np.ones((self.num_kernels, 1), dtype=float), axis=0)
+                else:
+                    channel_combinations = getattr(self, f"channel_combinations_{i}")
 
-                for q in range(0, num_quantiles):
-                    selected_kernels = (
-                        kernel_indices[q * self.num_kernels : q * self.num_kernels + self.num_kernels].cpu().numpy()
-                    )
-                    channel_combinations_q = channel_combinations[:, :, selected_kernels]
-                    channel_combinations_q = torch.transpose(channel_combinations_q.squeeze(), 0, 1).cpu().numpy()
+                    for q in range(0, num_quantiles):
+                        selected_kernels = (
+                            kernel_indices[q * self.num_kernels : q * self.num_kernels + self.num_kernels].cpu().numpy()
+                        )
+                        channel_combinations_q = channel_combinations[:, :, selected_kernels]
+                        channel_combinations_q = torch.transpose(channel_combinations_q.squeeze(), 0, 1).cpu().numpy()
 
-                    full_features = np.append(full_features, channel_combinations_q, axis=0)
+                        full_features = np.append(full_features, channel_combinations_q, axis=0)
 
             # Weights: num dilations * num kernels, where each kernel has 9 weights
             elif which == "weights":
