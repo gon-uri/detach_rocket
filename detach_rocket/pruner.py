@@ -44,7 +44,7 @@ def get_transformer_pruner(transformer):
         return RocketTransformerPruner()
 
     try:
-        from detach_rocket.transformer_models import CudaMiniRocketMultivariate
+        from detach_rocket.cuda_minirocket import CudaMiniRocketMultivariate
 
         if isinstance(transformer, CudaMiniRocketMultivariate):
             return CudaMiniRocketTransformerPruner()
@@ -269,9 +269,7 @@ class GenericPrunedTransformer:
         else:
             X_transf = np.asarray(X_transf)
         if X_transf.ndim != 2:
-            raise ValueError(
-                "Fallback pruned transformer expects transform(X) to return a 2D feature matrix."
-            )
+            raise ValueError("Fallback pruned transformer expects transform(X) to return a 2D feature matrix.")
         if X_transf.shape[1] != self.feature_mask.size:
             raise ValueError(
                 "Feature mask length does not match transformer output width: "
@@ -305,9 +303,7 @@ class GenericTransformerPruner(TransformerPruner):
         if original_transformer is None:
             raise ValueError("Transformer must not be None.")
         if not callable(getattr(original_transformer, "transform", None)):
-            raise ValueError(
-                "Unsupported transformer for generic fallback: missing callable transform(X)."
-            )
+            raise ValueError("Unsupported transformer for generic fallback: missing callable transform(X).")
         mask = _normalize_feature_mask(optimal_feature_mask)
         return GenericPrunedTransformer(original_transformer, mask)
 
@@ -425,7 +421,7 @@ class RocketTransformerPruner(TransformerPruner):
 
 
 class CudaMiniRocketTransformerPruner(TransformerPruner):
-    """Pruner for :class:`~detach_rocket.transformer_models.CudaMiniRocketMultivariate`.
+    """Pruner for :class:`~detach_rocket.cuda_minirocket.CudaMiniRocketMultivariate`.
 
     Splits the feature mask into per-dilation chunks, identifies which
     dilations can be skipped entirely, and builds a
@@ -461,8 +457,7 @@ class CudaMiniRocketTransformerPruner(TransformerPruner):
         expected_size = original_transformer.num_features
         if mask.size != expected_size:
             raise ValueError(
-                "CudaMiniRocket feature mask size mismatch: "
-                f"expected {expected_size} features, got {mask.size}."
+                f"CudaMiniRocket feature mask size mismatch: expected {expected_size} features, got {mask.size}."
             )
 
         num_dilations = original_transformer.num_dilations
@@ -473,7 +468,7 @@ class CudaMiniRocketTransformerPruner(TransformerPruner):
         offset = 0
         for i in range(num_dilations):
             block_size = num_kernels_per_dilation * int(original_transformer.num_features_per_dilation[i])
-            dilation_masks[i] = mask[offset:offset + block_size]
+            dilation_masks[i] = mask[offset : offset + block_size]
             offset += block_size
 
         # Identify dilations with at least one retained feature
