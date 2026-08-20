@@ -1,7 +1,11 @@
 __pycache__/
 *.pyc
 .venv/
+.conda/
 *.egg-info/
 dist/
 build/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
 CLAUDE.md
