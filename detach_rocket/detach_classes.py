@@ -250,6 +250,11 @@ class BaseDetach:
         if trade_off is None:
             raise ValueError("trade_off argument is required.")
         self._require_fitted()
+        if self.val_scores_ is None:
+            raise ValueError(
+                "No validation scores available: the model was fitted with set_percentage. "
+                "Refit with a validation set to use fit_trade_off."
+            )
 
         max_index, _ = select_optimal_pruning(
             self.retained_ratios_,
@@ -490,11 +495,8 @@ class DetachRocket(BaseDetach):
         self.transformer = transformer
 
         # DetachRocket-specific learned attributes
-        self.fit_params_ = None
         self.pruned_transformer_ = None
         self.pruned_scaler_ = None
-        self.pruned_feature_matrix_ = None
-        self._X_train_raw_ = None
 
     # -- Input preparation (BaseDetach hooks) --------------------------------
 
@@ -534,9 +536,10 @@ class DetachRocket(BaseDetach):
         Parameters
         ----------
         X : array-like
-            Training time series.  Shape ``(n_instances, n_timepoints)`` for
-            univariate or ``(n_instances, n_channels, n_timepoints)`` for
-            multivariate data.
+            Training time series of shape
+            ``(n_instances, n_channels, n_timepoints)``.  For univariate
+            data with sktime transformers a 2D
+            ``(n_instances, n_timepoints)`` array is also accepted.
         y : array-like of shape (n_instances,)
             Training labels.
         X_val : array-like or None, default=None
@@ -556,7 +559,6 @@ class DetachRocket(BaseDetach):
         """
         self._validate_inputs(X, y, X_val, y_val)
 
-        self._X_train_raw_ = X
         self.scaler_ = StandardScaler(with_mean=True)
 
         self._log("Applying Data Transformation")
@@ -571,8 +573,6 @@ class DetachRocket(BaseDetach):
             self.feature_matrix_val_ = self.scaler_.transform(self.feature_matrix_val_)
         else:
             self.feature_matrix_val_ = None
-
-        self.fit_params_ = kwargs
 
         self._log("Fitting Full Model")
         full_classifier = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
@@ -624,8 +624,6 @@ class DetachRocket(BaseDetach):
         self.pruned_scaler_.var_ = self.scaler_.var_[self.feature_mask_]
         self.pruned_scaler_.n_features_in_ = int(np.sum(self.feature_mask_))
         self.pruned_scaler_.n_samples_seen_ = self.scaler_.n_samples_seen_
-
-        self.pruned_feature_matrix_ = self._prepare_X(self._X_train_raw_)
 
     def detach(self):
         """Return a lightweight :class:`PrunedRocketModel` for inference.
@@ -900,7 +898,9 @@ class DetachEnsemble:
     num_models : int, default=25
         Number of Detach-ROCKET models in the ensemble.
     num_kernels : int, default=10_000
-        Number of kernels for each underlying MiniRocket transformer.
+        Number of MiniRocket features per model (passed to the backend
+        as ``num_features`` and rounded down to a multiple of 84, the
+        number of fixed MiniRocket kernels).
     trade_off : float, default=0.1
         Trade-off parameter passed to each :class:`DetachRocket`.
     set_percentage : float or None, default=None
@@ -912,8 +912,9 @@ class DetachEnsemble:
     val_ratio : float, default=0.33
         Fraction of the training data used as a validation set for each
         model (only used when ``set_percentage`` is *None*).
-    verbose : bool, default=False
-        Print progress messages.
+    verbose : bool or int, default=False
+        Print progress messages.  A value of ``2`` or higher also
+        enables verbose output of the individual DetachRocket models.
     multiclass_type : str, default="norm"
         Method to aggregate multi-class Ridge coefficients into a single
         feature-importance vector.  Forwarded to each inner
@@ -1029,6 +1030,8 @@ class DetachEnsemble:
             Training labels.
 
         Returns
+        -------
+        self
         """
         if self.backend == "pytorch":
             first_model = self.derockets[0].transformer
@@ -1129,14 +1132,8 @@ class DetachEnsemble:
         Returns
         -------
         accuracy : float
-
-        Raises
-        ------
-        NotImplementedError
-            This method is not yet implemented.
         """
-        # TODO: implement ensemble scoring strategy
-        raise NotImplementedError("DetachEnsemble.score() is not yet implemented.")
+        return float(np.mean(self.predict(X) == np.asarray(y)))
 
     def estimate_channel_relevance(self):
         """Estimate the relevance of each input channel.
