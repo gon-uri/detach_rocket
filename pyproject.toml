@@ -46,7 +46,13 @@ dependencies = [
 # -- Optional dependency groups ---------------------------------------------
 [project.optional-dependencies]
 # DetachEnsemble with PyTorch backend (PytorchMiniRocketMultivariate)
-torch = ["torch>=2.2.2"]
+torch = [
+    "torch>=2.2.2",
+    # On macOS x86_64 (including Rosetta condas on Apple Silicon) the newest
+    # available torch wheel is 2.2.2, which was built against NumPy 1.x and
+    # breaks at runtime with NumPy >= 2 (torch<->numpy conversions fail).
+    "numpy<2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
 # DetachEnsemble with CUDA backend (CudaMiniRocketMultivariate)
 cuda = ["cupy-cuda12x>=13.0"]
 # Dataset download utilities (utils_datasets.py)
