@@ -14,7 +14,6 @@ from detach_rocket.pruner import get_transformer_pruner
 from detach_rocket.sfd import feature_detachment
 
 
-
 class BaseDetach:
     """Base class for Detach models.
 
@@ -45,9 +44,7 @@ class BaseDetach:
         (L∞), or ``"avg"`` (L1).
     """
 
-    def __init__(
-        self, trade_off=0.1, set_percentage=None, recompute_alpha=True, verbose=False, multiclass_type="norm"
-    ):
+    def __init__(self, trade_off=0.1, set_percentage=None, recompute_alpha=True, verbose=False, multiclass_type="norm"):
         self.trade_off = trade_off
         self.set_percentage = set_percentage
         self.recompute_alpha = recompute_alpha
@@ -671,9 +668,7 @@ class DetachRocket(BaseDetach):
         """
         summary = super().get_summary()
         retained_kernel_count = getattr(self.pruned_transformer_, "num_kernels", None)
-        summary["retained_kernel_count"] = (
-            None if retained_kernel_count is None else int(retained_kernel_count)
-        )
+        summary["retained_kernel_count"] = None if retained_kernel_count is None else int(retained_kernel_count)
         return summary
 
 
@@ -924,11 +919,11 @@ class DetachEnsemble:
         feature-importance vector.  Forwarded to each inner
         :class:`DetachRocket`.  One of ``"norm"`` (L2), ``"max"``
         (L∞), or ``"avg"`` (L1).
-    backend : {'cuda', 'pytorch'}, default='cuda'
+    backend : {'pytorch', 'cuda'}, default='pytorch'
         Which MiniRocket implementation to use as the transformer.
-        ``'cuda'`` uses :class:`CudaMiniRocketMultivariate` (requires
-        CuPy + CUDA), ``'pytorch'`` uses
-        :class:`PytorchMiniRocketMultivariate` (requires PyTorch).
+        ``'pytorch'`` uses :class:`PytorchMiniRocketMultivariate`
+        (requires PyTorch; runs on CPU or CUDA GPU), ``'cuda'`` uses
+        :class:`CudaMiniRocketMultivariate` (requires CuPy + a CUDA GPU).
 
     Attributes
     ----------
@@ -968,13 +963,11 @@ class DetachEnsemble:
         val_ratio=0.33,
         verbose=False,
         multiclass_type="norm",
-        backend="cuda",
+        backend="pytorch",
     ):
         backend = backend.lower()
         if backend not in self._BACKENDS:
-            raise ValueError(
-                f"Unknown backend '{backend}'. Choose from {self._BACKENDS}."
-            )
+            raise ValueError(f"Unknown backend '{backend}'. Choose from {self._BACKENDS}.")
 
         TransformerClass = self._get_transformer_class(backend)
 
@@ -1009,9 +1002,15 @@ class DetachEnsemble:
         """Import and return the transformer class for the given backend."""
         if backend == "cuda":
             from detach_rocket.cuda_minirocket import CudaMiniRocketMultivariate
+
             return CudaMiniRocketMultivariate
         else:  # "pytorch"
-            from detach_rocket.pytorch_minirocket import PytorchMiniRocketMultivariate
+            try:
+                from detach_rocket.pytorch_minirocket import PytorchMiniRocketMultivariate
+            except ImportError as e:
+                raise ImportError(
+                    "The 'pytorch' backend requires PyTorch. Install it with: pip install \"detach_rocket[torch]\""
+                ) from e
             return PytorchMiniRocketMultivariate
 
     def fit(self, X, y):
@@ -1055,7 +1054,7 @@ class DetachEnsemble:
             model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
 
         if self.verbose:
-            print() # Clear the line after completion
+            print()  # Clear the line after completion
 
         self.num_channels = X.shape[1]
         self.label_encoder.fit(y)

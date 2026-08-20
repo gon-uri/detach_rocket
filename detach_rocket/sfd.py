@@ -80,6 +80,7 @@ def feature_detachment(
             raise ValueError('Invalid multiclass_type. Choose from: "norm", "max", or "avg".')
         calc_feature_importance = multiclass_methods[multiclass_type]
     else:
+
         def calc_feature_importance(coef):
             return np.abs(coef).ravel()
 

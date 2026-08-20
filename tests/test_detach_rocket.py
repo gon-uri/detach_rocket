@@ -97,6 +97,7 @@ def test_rocket_pruner(detach_rocket, data):
 
 def test_invalid_pruning():
     """Test that unsupported transformers fall back to generic pruning."""
+
     # Create a mock transformer (not a Rocket instance)
     class MockTransformer:
         def transform(self, X):
