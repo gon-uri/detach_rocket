@@ -43,20 +43,6 @@ def detach_rocket():
     return detach_rocket
 
 
-# def test_fit_with_fixed_pruning(data):
-#     """Test the fit function with a fixed pruning percentage."""
-#     # Call the fit method
-#     data["detach_rocket"].fit(data["X_train"], data["y_train"], X_val=data["X_val"], y_val=data["y_val"])
-
-#     # Assert that the pruned transformer was created
-#     assert data["detach_rocket"]._pruned_transformer is not None, "Pruned transformer should be initialized"
-
-#     # Check that the pruned feature matrix has the expected shape
-#     expected_num_features = np.sum(data["detach_rocket"]._optimal_feature_mask)
-#     pruned_feature_matrix_shape = data["detach_rocket"]._pruned_feature_matrix.shape
-#     assert pruned_feature_matrix_shape[1] == expected_num_features, "Pruned feature matrix shape mismatch"
-
-
 def test_fit_with_optimal_pruning(detach_rocket, data):
     """Test the fit function without a fixed pruning percentage, allowing optimal selection."""
     # Set set_percentage to None to allow optimal pruning
@@ -152,3 +138,22 @@ def test_get_summary(detach_rocket, data):
     assert 0 <= summary["selected_ratio"] <= 1
     assert summary["retained_kernel_count"] == detach_rocket.pruned_transformer_.num_kernels
     assert summary["final_model_alpha"] > 0
+
+
+def test_model_level_pruned_path_equivalence(detach_rocket, data):
+    """The pruned inference path must equal the full-transform-then-mask path,
+    and the detached lightweight model must reproduce the parent's predictions."""
+    detach_rocket.fit(data["X_train"], data["y_train"])
+
+    X, y = data["X_val"], data["y_val"]
+    full = np.asarray(detach_rocket.transformer.transform(X))
+    masked = detach_rocket.scaler_.transform(full)[:, detach_rocket.feature_mask_]
+    assert np.allclose(detach_rocket._prepare_X(X), masked, atol=1e-6), (
+        "Pruned inference path diverged from the full-transform-then-mask path"
+    )
+
+    pruned_model = detach_rocket.detach()
+    assert np.array_equal(pruned_model.predict(X), detach_rocket.predict(X)), (
+        "detach() model predictions differ from the parent model"
+    )
+    assert np.isclose(pruned_model.score(X, y), detach_rocket.score(X, y))
