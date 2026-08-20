@@ -54,6 +54,15 @@ def test_channel_relevance(fitted_ensemble):
     # Channel 0 carries the class signal, so it should dominate.
     assert relevance.argmax() == 0
 
+    # The paper's aggregation (median) is available as an option.
+    relevance_median = fitted_ensemble.estimate_channel_relevance(aggregation="median")
+    assert relevance_median.shape == (3,)
+    assert np.isclose(relevance_median.sum(), 1.0)
+    assert relevance_median.argmax() == 0
+
+    with pytest.raises(ValueError, match="aggregation"):
+        fitted_ensemble.estimate_channel_relevance(aggregation="mode")
+
 
 def test_get_kernel_features_bias_order():
     """Bias values returned per feature must match the feature ordering."""

@@ -1135,18 +1135,30 @@ class DetachEnsemble:
         """
         return float(np.mean(self.predict(X) == np.asarray(y)))
 
-    def estimate_channel_relevance(self):
+    def estimate_channel_relevance(self, aggregation="mean"):
         """Estimate the relevance of each input channel.
 
-        Computes a mean relevance score across all ensemble members
-        by distributing each feature's importance to the channels used
-        by its corresponding kernel.
+        Distributes each feature's importance to the channels used by
+        its corresponding kernel, normalizes the scores per ensemble
+        member, and aggregates them across members.
+
+        Parameters
+        ----------
+        aggregation : {'mean', 'median'}, default='mean'
+            How to aggregate the per-model relevance scores.  The
+            Detach-Rocket Ensemble paper (arXiv:2408.02760) uses
+            ``'median'``; the default here is ``'mean'``, which is more
+            stable when some models prune (almost) all features.  With
+            ``'median'`` the aggregated scores are re-normalized to sum
+            to 1, as in the paper.
 
         Returns
         -------
         channel_relevance : np.ndarray of shape (n_channels,)
             Normalized relevance score for each channel.
         """
+        if aggregation not in ("mean", "median"):
+            raise ValueError(f"aggregation={aggregation!r} is not valid. Use 'mean' or 'median'.")
         if not self.is_fitted_:
             raise ValueError("Model not fitted. Call fit method first.")
 
@@ -1177,5 +1189,9 @@ class DetachEnsemble:
 
             channel_relevance_matrix[m] = channel_relevance
 
-        # Mean is preferred over median: more stable when some models prune all features.
-        return np.mean(channel_relevance_matrix, axis=0)
+        if aggregation == "mean":
+            return np.mean(channel_relevance_matrix, axis=0)
+
+        median_relevance = np.median(channel_relevance_matrix, axis=0)
+        total = median_relevance.sum()
+        return median_relevance / total if total > 0 else median_relevance
