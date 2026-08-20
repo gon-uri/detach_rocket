@@ -44,3 +44,23 @@ def test_feature_detachment_with_validation():
     assert np.count_nonzero(feature_matrix[20, n_relevant_features:]) <= 10, (
         "Irrelevant features were not pruned early enough"
     )
+
+
+def test_feature_detachment_without_validation():
+    """Without a validation set, test scores must be None and the rest intact."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((80, 100))
+    y = np.where(X[:, :10].sum(axis=1) > 0, 1, -1)
+
+    classifier = RidgeClassifier()
+    retained_ratios, train_scores, test_scores, feature_matrix = feature_detachment(
+        classifier,
+        X,
+        y_train=y,
+        num_steps=10,
+        verbose=False,
+    )
+
+    assert test_scores is None
+    assert len(train_scores) == len(retained_ratios)
+    assert feature_matrix.shape == (len(retained_ratios), X.shape[1])
