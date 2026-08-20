@@ -93,6 +93,8 @@ filterwarnings = [
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+# Lint/format the library and tests only; notebooks are user-facing documents.
+extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
 select = [
