@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-blue)
 ![License](https://img.shields.io/badge/License-BSD--3--Clause-green)
-![Install](https://img.shields.io/badge/pip%20install-detach__rocket-orange)
+![Install](https://img.shields.io/badge/install-from%20GitHub-orange)
 
 Official repository for:
 
@@ -17,9 +17,9 @@ ROCKET models generate thousands of random convolutional features, but most are 
 
 | | Full ROCKET | Detach-ROCKET |
 |---|---|---|
-| Test Accuracy | 78.77% | **79.88%** |
-| Features Retained | 100% | **3.56%** |
-| Inference Time | 21.68s | **1.47s (14.7x faster)** |
+| Test Accuracy | 79.26% | **81.85%** |
+| Features Retained | 100% | **0.69%** |
+| Inference Time | 34.66s | **0.47s (73x faster)** |
 
 *FordB dataset (UCR archive) — 10,000 kernels. See the [full example notebook](examples/Detach_ROCKET_example_UCR.ipynb).*
 
@@ -29,7 +29,7 @@ Detach-ROCKET applies **Sequential Feature Detachment (SFD)** to ROCKET-family m
 
 The library provides four main classes:
 
-- **`DetachRocket`** — End-to-end model: wraps any ROCKET-family transformer (Rocket, MiniRocket, MultiRocket), prunes it with SFD, and rebuilds a smaller transformer for fast inference.
+- **`DetachRocket`** — End-to-end model: wraps any ROCKET-family transformer (Rocket, MiniRocket, MultiRocket), prunes it with SFD, and rebuilds a smaller transformer for fast inference. Physical kernel rebuilding is currently implemented for sktime's `Rocket` and the CuPy MiniRocket backend; other transformers use an exact feature-masking fallback (identical predictions, without the inference speedup).
 
 - **`DetachEnsemble`** — Ensemble of independently randomized Detach-MiniRocket models. Designed for multivariate time series, especially high-dimensional data (e.g. MEG/EEG). Provides class probability estimation and channel relevance scores. Supports `backend="pytorch"` (CPU/GPU) and `backend="cuda"` (CuPy).
 
@@ -117,8 +117,9 @@ detach_model.fit(X_train, y_train)
 ```
 
 **Input shapes:**
-- Univariate: `(n_instances, 1, n_timepoints)`
+- Univariate: `(n_instances, 1, n_timepoints)` — with sktime transformers, 2D `(n_instances, n_timepoints)` also works
 - Multivariate: `(n_instances, n_channels, n_timepoints)`
+- The MiniRocket backends used by `DetachEnsemble` require the 3D form
 
 ## Quick Start — DetachEnsemble
 
@@ -174,19 +175,49 @@ Detailed usage examples are available in the [examples folder](examples/):
 
 ## Core Modules
 
+- `detach_rocket/detach_classes.py`: Main model classes (`DetachRocket`, `DetachMatrix`, `DetachEnsemble`, `PrunedRocketModel`).
 - `detach_rocket/sfd.py`: Sequential Feature Detachment core logic (`feature_detachment`).
 - `detach_rocket/model_selection.py`: Model-size selection and final retraining utilities.
+- `detach_rocket/pruner.py`: Transformer pruning — physical rebuild for Rocket and CUDA MiniRocket, generic masking fallback for everything else.
+- `detach_rocket/pytorch_minirocket.py`: PyTorch MiniRocket implementation (CPU/GPU).
+- `detach_rocket/cuda_minirocket.py`: CuPy/CUDA MiniRocket implementation.
+- `detach_rocket/utils_datasets.py`: UCR/UEA dataset download helpers.
+
+## Migrating from 0.0.x
+
+Version 0.1.0 is a rewrite with a cleaner, scikit-learn-style API. The main breaking changes:
+
+| 0.0.x | 0.1.0 |
+|---|---|
+| `DetachRocket(model_type="rocket", num_kernels=10000)` | `DetachRocket(transformer=Rocket(num_kernels=10_000))` — pass any transformer instance |
+| `fit(X, y)` with a silent internal train/val split | Explicit `fit(X, y, X_val=..., y_val=...)`, or `set_percentage=...` to skip validation |
+| `score(X, y)` returned a `(pruned_acc, full_acc)` tuple | `score(X, y)` returns a float; the unpruned baseline is `score_full(X, y)` |
+| Private attributes (`_feature_matrix`, `_classifier`, ...) | scikit-learn style public attributes (`feature_matrix_`, `classifier_`, ...) |
+| `multilabel_type` (default `"max"`) | `multiclass_type` (default `"norm"`, the L2 aggregation) |
+| `utils.py` (`feature_detachment`, `select_optimal_model` with built-in plotting) | `sfd.py` (`feature_detachment`) and `model_selection.py` (`select_optimal_pruning`, plotting moved to the notebooks) |
+
+New in 0.1.0: `DetachEnsemble` with PyTorch and CuPy/CUDA MiniRocket backends, physical transformer pruning, `detach()` for lightweight deployment models, and channel relevance estimation.
+
+Two behavior fixes worth knowing: 0.0.x retrained the final classifier on the feature set of the step *before* the selected one (an off-by-one in the mask reconstruction) and fitted the scaler before the internal train/val split; 0.1.0 retrains exactly the selected feature set and keeps validation data out of the scaler fit.
 
 ## Troubleshooting
 
-If `pip install` fails while building `llvmlite` (a `numba` dependency), install `numba` via conda first:
+**`llvmlite` fails to build during `pip install`.** This happens on platforms where the newest `numba` release has no pre-built wheel (e.g. Intel Macs, or x86_64/Rosetta condas on Apple Silicon), so pip tries to compile it from source. Tell pip to prefer wheels over newer source releases:
+
+```bash
+pip install --prefer-binary git+https://github.com/gon-uri/detach_rocket
+```
+
+Alternatively, install `numba` from conda first and then install the package:
 
 ```bash
 conda install "numba>=0.58"
-pip install detach_rocket  # or pip install git+https://github.com/gon-uri/detach_rocket
+pip install git+https://github.com/gon-uri/detach_rocket
 ```
 
-If after this you see an `Intel MKL WARNING` about SSE4.2/AVX (conda installs MKL by default), run:
+**`RuntimeError: Numpy is not available` from torch (Intel Mac / Rosetta conda).** The newest torch wheel for macOS x86_64 is 2.2.2, which requires `numpy<2`. The `[torch]` extra pins this automatically on that platform; in a pre-existing environment, run `pip install "numpy<2"`.
+
+**`Intel MKL WARNING` about SSE4.2/AVX** (conda installs MKL by default):
 
 ```bash
 conda install nomkl
