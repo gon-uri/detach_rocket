@@ -1,7 +1,6 @@
 """PyTorch implementation of MiniRocket for multivariate time series."""
 
 import contextlib
-import sys
 
 import numpy as np
 import torch
@@ -145,9 +144,9 @@ class PytorchMiniRocketMultivariate(nn.Module):
             # Indices for the kernels / channel combinations & biases
             bias_this_dilation = getattr(self, f"biases_{i}")
             num_kernels, num_quantiles = bias_this_dilation.shape
-            bias_indices = (
-                torch.arange(num_kernels * num_quantiles, dtype=int).reshape(num_quantiles, num_kernels).transpose(1, 0)
-            )
+            # bias_indices[k, j] must be the row-major flat index of biases_[k, j],
+            # since get_kernel_features indexes biases_this_dilation.flatten() with it.
+            bias_indices = torch.arange(num_kernels * num_quantiles, dtype=int).reshape(num_kernels, num_quantiles)
 
             kernel_indices = torch.arange(num_kernels, dtype=int)
             kernel_indices = torch.stack([kernel_indices] * num_quantiles, dim=-1)

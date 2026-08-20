@@ -21,30 +21,23 @@ Requirements:
 from __future__ import annotations
 
 import math
-import time
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, Union, List
+from typing import Union
 
 import numpy as np
 
 try:
     import cupy as cp
-except Exception as e:
+except Exception:
     cp = None
-
-try:
-    import torch
-    import torch.nn as nn
-except Exception as e:
-    torch = None
-    nn = None
 
 ArrayLike = Union[np.ndarray, "cp.ndarray"]
 
+
 @dataclass
 class _PackedChannels:
-    chan_idx: "cp.ndarray"  # (84, 9) int32, padded with -1
-    chan_cnt: "cp.ndarray"  # (84,) int32
+    chan_idx: cp.ndarray  # (84, 9) int32, padded with -1
+    chan_cnt: cp.ndarray  # (84,) int32
 
 
 class CudaMiniRocketMultivariate:
@@ -69,42 +62,46 @@ class CudaMiniRocketMultivariate:
 
     def __init__(self, num_features: int = 10_000, max_dilations_per_kernel: int = 32, device=None):
         if cp is None:
-            raise ImportError("cupy is required for CudaMiniRocketMultivariate.")
+            raise ImportError(
+                "CuPy is required for CudaMiniRocketMultivariate. "
+                'Install it with: pip install "detach_rocket[cuda]" '
+                "(or the cupy build matching your CUDA version)."
+            )
 
         self.num_features = int(num_features)
         self.max_dilations_per_kernel = int(max_dilations_per_kernel)
         self.device = device  # kept only for signature parity; not used
 
         # learned/fit state
-        self.c_in: Optional[int] = None
-        self.seq_len: Optional[int] = None
+        self.c_in: int | None = None
+        self.seq_len: int | None = None
 
-        self.num_dilations: Optional[int] = None
-        self.dilations: Optional[np.ndarray] = None          # (D,) int32
-        self.padding: Optional[List[int]] = None             # len D
+        self.num_dilations: int | None = None
+        self.dilations: np.ndarray | None = None  # (D,) int32
+        self.padding: list[int] | None = None  # len D
 
-        self.num_features_per_dilation: Optional[np.ndarray] = None  # (D,) int32
+        self.num_features_per_dilation: np.ndarray | None = None  # (D,) int32
         self.prefit: bool = False
 
         # parameters stored for inspection / parity with PyTorch class
-        self.base_kernels_np: Optional[np.ndarray] = None     # (84,9) float32
-        self.kernels: Optional[np.ndarray] = None             # (c_in*84,1,9) float32, repeated as in torch
-        self.channel_combinations: Dict[int, np.ndarray] = {} # i -> (1,C,84,1) float32 (numpy)
-        self.biases: Dict[int, np.ndarray] = {}               # i -> (84, q_i) float32 (numpy)
+        self.base_kernels_np: np.ndarray | None = None  # (84,9) float32
+        self.kernels: np.ndarray | None = None  # (c_in*84,1,9) float32, repeated as in torch
+        self.channel_combinations: dict[int, np.ndarray] = {}  # i -> (1,C,84,1) float32 (numpy)
+        self.biases: dict[int, np.ndarray] = {}  # i -> (84, q_i) float32 (numpy)
 
         # indices for get_kernel_features (numpy int32)
-        self.kernel_indices: Dict[int, np.ndarray] = {}       # i -> (84*q_i,) int32
-        self.bias_indices: Dict[int, np.ndarray] = {}         # i -> (84*q_i,) int32
+        self.kernel_indices: dict[int, np.ndarray] = {}  # i -> (84*q_i,) int32
+        self.bias_indices: dict[int, np.ndarray] = {}  # i -> (84*q_i,) int32
 
         # packed channel indices for CUDA
-        self._packed_channels: Dict[int, _PackedChannels] = {}
+        self._packed_channels: dict[int, _PackedChannels] = {}
 
         # CUDA compilation caches
-        self._cuda_bias_kernels: Dict[Tuple[int, int, int, int], "cp.RawKernel"] = {}
-        self._cuda_ppv_kernels: Dict[Tuple[int, int, int, int, int], "cp.RawKernel"] = {}
+        self._cuda_bias_kernels: dict[tuple[int, int, int, int], cp.RawKernel] = {}
+        self._cuda_ppv_kernels: dict[tuple[int, int, int, int, int], cp.RawKernel] = {}
 
         # cached GPU constants
-        self._base_kernels_cp: Optional["cp.ndarray"] = None  # (84,9) float32
+        self._base_kernels_cp: cp.ndarray | None = None  # (84,9) float32
 
     # ---------------------------------------------------------------------
     # Public API
@@ -189,7 +186,7 @@ class CudaMiniRocketMultivariate:
         x_cp = self._to_cupy_float32(x)
         B, C, L = map(int, x_cp.shape)
         if C != self.c_in or L != self.seq_len:
-            raise ValueError(f"Input shape mismatch: expected (*,{self.c_in},{self.seq_len}) but got {(B,C,L)}")
+            raise ValueError(f"Input shape mismatch: expected (*,{self.c_in},{self.seq_len}) but got {(B, C, L)}")
 
         outputs = []
         for i, (dilation, padding) in enumerate(zip(self.dilations.tolist(), self.padding)):
@@ -279,7 +276,7 @@ class CudaMiniRocketMultivariate:
             q_i = int(biases_i.shape[1])
 
             kernel_idx = self.kernel_indices[i]  # (84*q_i,)
-            bias_idx = self.bias_indices[i]      # (84*q_i,)
+            bias_idx = self.bias_indices[i]  # (84*q_i,)
 
             if which == "biases":
                 sorted_biases = biases_i.reshape(-1)[bias_idx]
@@ -293,11 +290,11 @@ class CudaMiniRocketMultivariate:
                         full_features = np.append(full_features, channel_combinations_q, axis=0)
                 else:
                     cc = self.channel_combinations[i]  # (1,C,84,1)
-                    cc2 = cc.squeeze(0).squeeze(-1)    # (C,84)
+                    cc2 = cc.squeeze(0).squeeze(-1)  # (C,84)
                     # replicate the PyTorch logic: for each quantile, select kernels in order and append (84,C)
                     for q in range(q_i):
-                        selected = kernel_idx[q * self.num_kernels: q * self.num_kernels + self.num_kernels]
-                        cc_sel = cc2[:, selected]              # (C,84)
+                        selected = kernel_idx[q * self.num_kernels : q * self.num_kernels + self.num_kernels]
+                        cc_sel = cc2[:, selected]  # (C,84)
                         cc_sel = np.transpose(cc_sel, (1, 0))  # (84,C)
                         full_features = np.append(full_features, cc_sel.astype(float, copy=False), axis=0)
 
@@ -305,7 +302,7 @@ class CudaMiniRocketMultivariate:
                 # kernels are equal for all channels; pick base weights (84,9)
                 weights = self.base_kernels_np.astype(float, copy=False)
                 for q in range(q_i):
-                    selected = kernel_idx[q * self.num_kernels: q * self.num_kernels + self.num_kernels]
+                    selected = kernel_idx[q * self.num_kernels : q * self.num_kernels + self.num_kernels]
                     full_features = np.append(full_features, weights[selected], axis=0)
 
             elif which == "dilations":
@@ -338,21 +335,23 @@ class CudaMiniRocketMultivariate:
             biases_i = self.biases[i]  # (84,q)
             num_kernels, num_quantiles = biases_i.shape
 
-            bias_indices = np.arange(num_kernels * num_quantiles, dtype=np.int32).reshape(num_quantiles, num_kernels).T
+            # bias_indices[k, j] must be the row-major flat index of biases[k, j],
+            # since get_kernel_features indexes biases_i.reshape(-1) with it.
+            bias_indices = np.arange(num_kernels * num_quantiles, dtype=np.int32).reshape(num_kernels, num_quantiles)
             kernel_indices = np.repeat(np.arange(num_kernels, dtype=np.int32)[:, None], repeats=num_quantiles, axis=1)
 
             # even group in PyTorch corresponds to [_padding1::2]
-            C_even = kernel_indices[_padding1::2, :]          # (42,q)
-            B_even = bias_indices[_padding1::2, :]            # (42,q)
-            C_even = C_even.reshape(-1)                       # (42*q,)
-            B_even = B_even.reshape(-1)                       # (42*q,)
+            C_even = kernel_indices[_padding1::2, :]  # (42,q)
+            B_even = bias_indices[_padding1::2, :]  # (42,q)
+            C_even = C_even.reshape(-1)  # (42*q,)
+            B_even = B_even.reshape(-1)  # (42*q,)
 
-            C_odd = kernel_indices[1 - _padding1 :: 2, :]      # (42,q)
+            C_odd = kernel_indices[1 - _padding1 :: 2, :]  # (42,q)
             B_odd = bias_indices[1 - _padding1 :: 2, :]
             C_odd = C_odd.reshape(-1)
             B_odd = B_odd.reshape(-1)
 
-            C_full = np.concatenate([C_even, C_odd], axis=0)   # (84*q,)
+            C_full = np.concatenate([C_even, C_odd], axis=0)  # (84*q,)
             B_full = np.concatenate([B_even, B_odd], axis=0)
 
             self.kernel_indices[i] = C_full
@@ -439,8 +438,8 @@ class CudaMiniRocketMultivariate:
                 chan_cnt=cp.asarray(chan_cnt, dtype=cp.int32),
             )
 
-        cc = self.channel_combinations[dilation_index]        # (1,C,84,1) float32
-        cc2 = cc.squeeze(0).squeeze(-1)                       # (C,84)
+        cc = self.channel_combinations[dilation_index]  # (1,C,84,1) float32
+        cc2 = cc.squeeze(0).squeeze(-1)  # (C,84)
 
         chan_idx = np.full((self.num_kernels, 9), -1, dtype=np.int32)
         chan_cnt = np.zeros((self.num_kernels,), dtype=np.int32)
@@ -459,7 +458,7 @@ class CudaMiniRocketMultivariate:
             chan_cnt=cp.asarray(chan_cnt, dtype=cp.int32),
         )
 
-    def _compile_bias_kernel(self, L: int, C: int, dilation: int, padding: int) -> "cp.RawKernel":
+    def _compile_bias_kernel(self, L: int, C: int, dilation: int, padding: int) -> cp.RawKernel:
         key = (L, C, dilation, padding)
         if key in self._cuda_bias_kernels:
             return self._cuda_bias_kernels[key]
@@ -509,7 +508,7 @@ class CudaMiniRocketMultivariate:
         self._cuda_bias_kernels[key] = kern
         return kern
 
-    def _compile_ppv_kernel(self, L: int, C: int, dilation: int, padding: int, q: int) -> "cp.RawKernel":
+    def _compile_ppv_kernel(self, L: int, C: int, dilation: int, padding: int, q: int) -> cp.RawKernel:
         key = (L, C, dilation, padding, q)
         if key in self._cuda_ppv_kernels:
             return self._cuda_ppv_kernels[key]
@@ -586,13 +585,13 @@ class CudaMiniRocketMultivariate:
 
     def _compute_biases_for_dilation_cuda(
         self,
-        X_cp: "cp.ndarray",                 # (N,C,L) float32
+        X_cp: cp.ndarray,  # (N,C,L) float32
         dilation: int,
         padding: int,
         q: int,
-        idxs: np.ndarray,                   # (84,) int32
+        idxs: np.ndarray,  # (84,) int32
         packed_channels: _PackedChannels,
-    ) -> "cp.ndarray":
+    ) -> cp.ndarray:
         """
         Matches the PyTorch bias definition:
           idxs = random choice of N with size 84
@@ -623,7 +622,7 @@ class CudaMiniRocketMultivariate:
         )
         cp.cuda.get_current_stream().synchronize()
 
-        qs = self._get_quantiles_np(q)                # (q,) float32
+        qs = self._get_quantiles_np(q)  # (q,) float32
         qs_cp = cp.asarray(qs, dtype=cp.float32)
 
         # cupy.quantile: output shape (q,84) when axis=1; transpose to (84,q)
@@ -634,16 +633,16 @@ class CudaMiniRocketMultivariate:
 
     def _ppv_transform_cuda(
         self,
-        X_cp: "cp.ndarray",                 # (B,C,L) float32
-        W_cp: "cp.ndarray",                 # (84,9) float32
+        X_cp: cp.ndarray,  # (B,C,L) float32
+        W_cp: cp.ndarray,  # (84,9) float32
         packed_channels: _PackedChannels,
-        BIAS_cp: "cp.ndarray",              # (84,q) float32
+        BIAS_cp: cp.ndarray,  # (84,q) float32
         dilation: int,
         padding: int,
         q: int,
         parity: int,
-        korder_cp: "cp.ndarray",            # (84,) int32
-        OUT_cp: "cp.ndarray",               # (B,84*q) float32
+        korder_cp: cp.ndarray,  # (84,) int32
+        OUT_cp: cp.ndarray,  # (B,84*q) float32
     ):
         B, C, L = map(int, X_cp.shape)
         ppv_kernel = self._compile_ppv_kernel(L=L, C=C, dilation=dilation, padding=padding, q=q)
@@ -696,7 +695,7 @@ class CudaMiniRocketMultivariate:
     # ---------------------------------------------------------------------
 
     @staticmethod
-    def _shape_of(x: ArrayLike) -> Tuple[int, ...]:
+    def _shape_of(x: ArrayLike) -> tuple[int, ...]:
         if isinstance(x, np.ndarray):
             return x.shape
         return tuple(x.shape)
@@ -706,7 +705,7 @@ class CudaMiniRocketMultivariate:
         return x[start:stop]
 
     @staticmethod
-    def _to_cupy_float32(x: ArrayLike) -> "cp.ndarray":
+    def _to_cupy_float32(x: ArrayLike) -> cp.ndarray:
         if isinstance(x, np.ndarray):
             # Ensure contiguous float32 on host before upload
             x = np.ascontiguousarray(x, dtype=np.float32)
@@ -715,5 +714,3 @@ class CudaMiniRocketMultivariate:
         if x.dtype != cp.float32:
             x = x.astype(cp.float32)
         return cp.ascontiguousarray(x)
-
-
