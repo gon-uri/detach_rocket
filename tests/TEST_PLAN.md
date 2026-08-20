@@ -1,122 +1,36 @@
 # Test Plan
 
-Test ideas collected from existing tests and the deleted `detach_rocket/test.py` script.
-To be implemented as proper pytest tests at the end of the refactor.
+Status of test coverage for the 0.1.0 rework. Implemented tests live in this
+directory; this file tracks what is covered and what remains open.
 
-## 1. `feature_detachment()` (sfd.py)
+## Covered
 
-### 1a. Basic SFD with validation set
-Verify output shapes, retained ratios, and that irrelevant features get pruned first.
-```python
-# Synthetic data: 5 relevant + 5 irrelevant features
-X_relevant = np.random.randn(200, 5)
-X_irrelevant = np.random.rand(200, 5)
-X = np.hstack((X_relevant, X_irrelevant))
-y = np.where(X[:, :5].sum(axis=1) > 0, 1, -1)
+- **`feature_detachment` (sfd.py)** — output shapes, monotonically decreasing
+  schedule, irrelevant features pruned first, no-validation path returns `None`
+  test scores (`test_feature_detachment.py`).
+- **`RocketTransformerPruner` (pruner.py)** — retained kernel count matches the
+  mask, output shape, exact numerical equivalence with the masked full
+  transform (`test_detach_rocket.py`).
+- **Generic pruner fallback** — unsupported transformers get a masking wrapper
+  instead of an error (`test_detach_rocket.py`).
+- **`DetachRocket`** — fit with trade-off selection and with fixed percentage,
+  `get_summary`, model-level pruned-path equivalence, and `detach()` parity
+  with the parent model (`test_detach_rocket.py`).
+- **`DetachMatrix`** — auto-split fit, `get_summary`, and 3-class fits with
+  every `multiclass_type` (`test_detach_matrix.py`).
+- **`DetachEnsemble`** (skipped automatically when PyTorch is not installed) —
+  fit, `predict`, `predict_proba` (soft and hard), `score`, channel-relevance
+  estimation, and `get_kernel_features` bias ordering and univariate channels
+  (`test_detach_ensemble.py`).
 
-# After SFD, irrelevant features (columns 5–9) should be pruned first
-assert (feature_matrix[5, 5:] == 0).all()
-```
+## Open
 
-### 1b. SFD without validation set
-Call with `X_test=None, y_test=None` — should return `None` for test scores.
-
-### 1c. Multi-class (multiclass_type variants)
-Test with 3+ classes, verify `"norm"`, `"max"`, `"avg"` all run without error.
-
-### 1d. sklearn compat (binary classification)
-Verify it works with both sklearn <1.6 (coef_ shape `(1, n_features)`) and >=1.6.1 (coef_ shape `(n_features,)`).
-
-## 2. `select_optimal_pruning()` (model_selection.py)
-
-### 2a. Returns valid index
-`max_index` should be in range, `max_percentage` between 0 and 1.
-
-### 2b. trade_off=0 selects highest accuracy
-With zero trade-off, should pick the step with best validation accuracy.
-
-### 2c. Large trade_off selects smallest model
-With very large trade-off, should pick a heavily pruned step.
-
-## 3. `retrain_optimal_model()` (model_selection.py)
-
-### 3a. Alpha recomputation
-When `model_alpha=None`, alpha should be recomputed via CV.
-
-### 3b. Fixed alpha
-When `model_alpha` is provided, the returned classifier should use that alpha.
-
-## 4. `RocketTransformerPruner` (pruner.py)
-
-### 4a. Pruned kernel count matches mask
-```python
-retained_num_kernels = np.sum(mask[0::2] | mask[1::2])
-assert pruned_trf.num_kernels == retained_num_kernels
-```
-
-### 4b. Pruned transformer produces correct output shape
-```python
-pruned_features = pruned_trf.transform(X_train)
-assert pruned_features.shape[1] == np.sum(mask)
-```
-
-### 4c. Pruned output matches full output at retained indices
-Transform with full Rocket, select columns by mask; transform with PrunedRocketTransformer.
-Results should be equal (or very close).
-
-### 4d. Invalid transformer raises ValueError
-```python
-with pytest.raises(ValueError):
-    get_transformer_pruner("InvalidTransformer")
-```
-
-### 4e. Unfitted transformer raises ValueError
-```python
-with pytest.raises(ValueError):
-    pruner.prune_transformer(unfitted_rocket, mask)
-```
-
-## 5. `DetachRocket` (detach_classes.py)
-
-### 5a. fit with optimal pruning (trade_off)
-```python
-dr = DetachRocket(transformer=Rocket(num_kernels=512))
-dr.fit(X_train, y_train, X_val=X_val, y_val=y_val)
-assert dr._pruned_transformer is not None
-assert dr._max_index >= 0
-```
-
-### 5b. fit with fixed percentage
-```python
-dr = DetachRocket(transformer=Rocket(num_kernels=512), set_percentage=50)
-dr.fit(X_train, y_train)
-```
-
-### 5c. predict and score (once implemented)
-Verify predict returns correct shape, score returns sensible values.
-
-### 5d. Input validation
-- Missing y raises ValueError
-- Missing validation set (when no set_percentage) raises ValueError
-
-## 6. `DetachMatrix` (detach_classes.py)
-
-### 6a. fit / predict / score on pre-computed features
-Same SFD pipeline but on a plain feature matrix.
-
-### 6b. fit_trade_off calls select_optimal_pruning correctly
-(Was broken — called undefined `select_optimal_model`.)
-
-## 7. `DetachEnsemble` (detach_classes.py)
-
-### 7a. fit / predict / predict_proba
-Ensemble of multiple DetachRocket models, soft and hard voting.
-
-### 7b. estimate_channel_relevance
-Returns array of shape `(n_channels,)` summing to ~1.
-
----
-
-**Note:** `DetachEnsemble` requires PyTorch (`pip install detach_rocket[torch]`).
-No automated test exists yet — needs a lightweight integration test with
-a small synthetic multivariate dataset.
+- `select_optimal_pruning`: `trade_off=0` should pick the best-accuracy step;
+  a very large `trade_off` should pick a heavily pruned step.
+- `retrain_optimal_model`: fixed alpha vs. re-computed alpha by CV.
+- Input-validation errors of `DetachRocket` / `DetachMatrix` (missing labels,
+  missing validation set when `set_percentage` is not used).
+- **CUDA backend** (`cuda_minirocket.py`, `CudaMiniRocketTransformerPruner`):
+  requires a CUDA GPU, so it is not covered by CI. Run
+  `python tests/manual_cuda_equivalence.py` once on a GPU machine after
+  changes to the CUDA code or the pruner.
