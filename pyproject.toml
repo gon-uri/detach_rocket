@@ -40,7 +40,11 @@ dependencies = [
     "scikit-learn>=1.7.2,<1.8",
 
     "sktime>=0.40.1",
-    "numba>=0.61.2",
+
+    # Needed by sktime's ROCKET transformers, not by this package directly.
+    # Keep the floor low so a conda-installed numba (see README
+    # Troubleshooting) satisfies it on platforms without recent wheels.
+    "numba>=0.58",
 ]
 
 # -- Optional dependency groups ---------------------------------------------
