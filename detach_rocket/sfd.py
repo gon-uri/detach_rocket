@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from detach_rocket._warnings import quiet_ridge_warnings
+
 
 def feature_detachment(
     classifier,
@@ -53,7 +55,8 @@ def feature_detachment(
         Feature importance matrix at each detachment step.
     """
     if not hasattr(classifier, "coef_"):
-        classifier.fit(X_train, y_train)
+        with quiet_ridge_warnings():
+            classifier.fit(X_train, y_train)
 
     multiclass_methods = {
         "norm": lambda coef: np.linalg.norm(coef, axis=0, ord=2),
@@ -94,7 +97,8 @@ def feature_detachment(
         selection_mask[selected_idxs] = True
 
         X_train_subsampled = X_train[:, selection_mask]
-        classifier.fit(X_train_subsampled, y_train)
+        with quiet_ridge_warnings():
+            classifier.fit(X_train_subsampled, y_train)
 
         avg_score_train = classifier.score(X_train_subsampled, y_train)
         score_list_train.append(avg_score_train)

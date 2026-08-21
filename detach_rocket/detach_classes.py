@@ -9,6 +9,7 @@ from sklearn.linear_model import RidgeClassifier, RidgeClassifierCV
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
+from detach_rocket._warnings import quiet_ridge_warnings
 from detach_rocket.model_selection import retrain_optimal_model, select_optimal_pruning
 from detach_rocket.pruner import get_transformer_pruner
 from detach_rocket.sfd import feature_detachment
@@ -578,7 +579,8 @@ class DetachRocket(BaseDetach):
 
         self._log("Fitting Full Model")
         full_classifier = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
-        full_classifier.fit(self.feature_matrix_, y)
+        with quiet_ridge_warnings():
+            full_classifier.fit(self.feature_matrix_, y)
         self.full_classifier_ = full_classifier
         self.full_model_alpha_ = full_classifier.alpha_
 
@@ -832,7 +834,8 @@ class DetachMatrix(BaseDetach):
 
         # Train full model as baseline
         self.full_classifier_ = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
-        self.full_classifier_.fit(self.feature_matrix_, y)
+        with quiet_ridge_warnings():
+            self.full_classifier_.fit(self.feature_matrix_, y)
         self.full_model_alpha_ = self.full_classifier_.alpha_
 
         self._log("TRAINING RESULTS Full Features:")
@@ -869,7 +872,8 @@ class DetachMatrix(BaseDetach):
 
         # Run SFD
         sfd_classifier = RidgeClassifier(alpha=self.full_model_alpha_)
-        sfd_classifier.fit(X_sfd_train, y_sfd_train)
+        with quiet_ridge_warnings():
+            sfd_classifier.fit(X_sfd_train, y_sfd_train)
 
         self._log("Applying Sequential Feature Detachment")
 

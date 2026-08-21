@@ -5,6 +5,8 @@ Model size selection and retraining utilities for Detach-ROCKET.
 import numpy as np
 from sklearn.linear_model import RidgeClassifier, RidgeClassifierCV
 
+from detach_rocket._warnings import quiet_ridge_warnings
+
 
 def select_optimal_pruning(
     retained_ratios,
@@ -86,11 +88,13 @@ def retrain_optimal_model(
 
     if model_alpha is None:
         cv_classifier = RidgeClassifierCV(alphas=np.logspace(-10, 10, 20))
-        cv_classifier.fit(masked_x_train, y_train)
+        with quiet_ridge_warnings():
+            cv_classifier.fit(masked_x_train, y_train)
         model_alpha = cv_classifier.alpha_
 
     optimal_classifier = RidgeClassifier(alpha=model_alpha)
-    optimal_classifier.fit(masked_x_train, y_train)
+    with quiet_ridge_warnings():
+        optimal_classifier.fit(masked_x_train, y_train)
     optimal_acc_train = optimal_classifier.score(masked_x_train, y_train)
 
     if verbose:
