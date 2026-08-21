@@ -10,7 +10,15 @@ import zipfile
 from urllib.request import urlretrieve
 
 import numpy as np
-from pyts.datasets import ucr_dataset_list, uea_dataset_list
+
+try:
+    from pyts.datasets import ucr_dataset_list, uea_dataset_list
+except ImportError as e:
+    raise ImportError(
+        "detach_rocket.utils_datasets requires the optional dataset dependencies. "
+        'Install them with: pip install "detach_rocket[datasets]"'
+    ) from e
+
 from scipy.io.arff import loadarff
 from sklearn.utils import Bunch
 
