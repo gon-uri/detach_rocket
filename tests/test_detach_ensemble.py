@@ -64,6 +64,39 @@ def test_channel_relevance(fitted_ensemble):
         fitted_ensemble.estimate_channel_relevance(aggregation="mode")
 
 
+def test_fit_with_explicit_validation(ensemble_data):
+    """An explicit validation set replaces the internal random split."""
+    X, y = ensemble_data
+    ensemble = DetachEnsemble(num_models=1, num_kernels=84, backend="pytorch")
+    ensemble.fit(X[:30], y[:30], X_val=X[30:], y_val=y[30:])
+    assert ensemble.is_fitted_
+    assert ensemble.predict(X[30:]).shape == y[30:].shape
+
+    with pytest.raises(ValueError, match="y_val"):
+        DetachEnsemble(num_models=1, num_kernels=84).fit(X[:30], y[:30], X_val=X[30:])
+
+
+def test_random_state_reproducibility(ensemble_data):
+    """Same random_state must give identical transformers and ensemble outputs."""
+    X, y = ensemble_data
+
+    t1 = PytorchMiniRocketMultivariate(num_features=168, random_state=7)
+    t2 = PytorchMiniRocketMultivariate(num_features=168, random_state=7)
+    features_1 = t1.fit(X).transform(X).numpy()
+    features_2 = t2.fit(X).transform(X).numpy()
+    assert np.array_equal(features_1, features_2)
+
+    t3 = PytorchMiniRocketMultivariate(num_features=168, random_state=8)
+    features_3 = t3.fit(X).transform(X).numpy()
+    assert not np.array_equal(features_1, features_3)
+
+    e1 = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, random_state=0)
+    e2 = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, random_state=0)
+    e1.fit(X, y)
+    e2.fit(X, y)
+    assert np.allclose(e1.predict_proba(X), e2.predict_proba(X))
+
+
 def test_get_kernel_features_bias_order():
     """Bias values returned per feature must match the feature ordering."""
     rng = np.random.default_rng(1)

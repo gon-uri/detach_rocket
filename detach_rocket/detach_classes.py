@@ -38,13 +38,14 @@ class BaseDetach:
         full model is reused.
     verbose : bool, default=False
         If *True*, print progress messages during fitting.
-    multiclass_type : str, default="norm"
+    multiclass_type : str, default="max"
         Method to aggregate multi-class Ridge coefficients into a single
-        feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
-        (L∞), or ``"avg"`` (L1).
+        feature-importance vector.  One of ``"max"`` (L∞, the
+        aggregation used in the Detach-ROCKET paper), ``"norm"`` (L2),
+        or ``"avg"`` (L1).
     """
 
-    def __init__(self, trade_off=0.1, set_percentage=None, recompute_alpha=True, verbose=False, multiclass_type="norm"):
+    def __init__(self, trade_off=0.1, set_percentage=None, recompute_alpha=True, verbose=False, multiclass_type="max"):
         self.trade_off = trade_off
         self.set_percentage = set_percentage
         self.recompute_alpha = recompute_alpha
@@ -426,10 +427,11 @@ class DetachRocket(BaseDetach):
         Whether to re-estimate Ridge alpha by CV after pruning.
     verbose : bool, default=False
         Print progress messages during fitting.
-    multiclass_type : str, default="norm"
+    multiclass_type : str, default="max"
         Method to aggregate multi-class Ridge coefficients into a single
-        feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
-        (L∞), or ``"avg"`` (L1).
+        feature-importance vector.  One of ``"max"`` (L∞, the
+        aggregation used in the Detach-ROCKET paper), ``"norm"`` (L2),
+        or ``"avg"`` (L1).
 
     Attributes
     ----------
@@ -483,7 +485,7 @@ class DetachRocket(BaseDetach):
         set_percentage=None,
         recompute_alpha=True,
         verbose=False,
-        multiclass_type="norm",
+        multiclass_type="max",
     ):
         super().__init__(
             trade_off=trade_off,
@@ -691,12 +693,17 @@ class DetachMatrix(BaseDetach):
     val_ratio : float, default=0.33
         Fraction of the training data used for validation when no
         explicit validation set is provided.
+    random_state : int or None, default=None
+        Seed for the internal train/validation split when no explicit
+        validation set is given.  *None* keeps the historical fixed
+        split (seed 42).
     verbose : bool, default=False
         Print progress messages during fitting.
-    multiclass_type : str, default="norm"
+    multiclass_type : str, default="max"
         Method to aggregate multi-class Ridge coefficients into a single
-        feature-importance vector.  One of ``"norm"`` (L2), ``"max"``
-        (L∞), or ``"avg"`` (L1).
+        feature-importance vector.  One of ``"max"`` (L∞, the
+        aggregation used in the Detach-ROCKET paper), ``"norm"`` (L2),
+        or ``"avg"`` (L1).
 
     Attributes
     ----------
@@ -752,7 +759,8 @@ class DetachMatrix(BaseDetach):
         recompute_alpha=True,
         val_ratio=0.33,
         verbose=False,
-        multiclass_type="norm",
+        multiclass_type="max",
+        random_state=None,
     ):
         super().__init__(
             trade_off=trade_off,
@@ -762,6 +770,7 @@ class DetachMatrix(BaseDetach):
             multiclass_type=multiclass_type,
         )
         self.val_ratio = val_ratio
+        self.random_state = random_state
 
     # -- Input preparation (BaseDetach hooks) --------------------------------
 
@@ -854,7 +863,7 @@ class DetachMatrix(BaseDetach):
                 self.feature_matrix_,
                 y,
                 test_size=self.val_ratio,
-                random_state=42,
+                random_state=42 if self.random_state is None else self.random_state,
                 stratify=y,
             )
 
@@ -915,16 +924,23 @@ class DetachEnsemble:
     verbose : bool or int, default=False
         Print progress messages.  A value of ``2`` or higher also
         enables verbose output of the individual DetachRocket models.
-    multiclass_type : str, default="norm"
+    multiclass_type : str, default="max"
         Method to aggregate multi-class Ridge coefficients into a single
         feature-importance vector.  Forwarded to each inner
-        :class:`DetachRocket`.  One of ``"norm"`` (L2), ``"max"``
-        (L∞), or ``"avg"`` (L1).
+        :class:`DetachRocket`.  One of ``"max"`` (L∞, the aggregation
+        used in the Detach-ROCKET paper), ``"norm"`` (L2), or ``"avg"``
+        (L1).
     backend : {'pytorch', 'cuda'}, default='pytorch'
         Which MiniRocket implementation to use as the transformer.
         ``'pytorch'`` uses :class:`PytorchMiniRocketMultivariate`
         (requires PyTorch; runs on CPU or CUDA GPU), ``'cuda'`` uses
         :class:`CudaMiniRocketMultivariate` (requires CuPy + a CUDA GPU).
+    random_state : int or None, default=None
+        Seed controlling the ensemble's randomness: it derives an
+        independent seed for every member's transformer (channel
+        combinations and bias sampling) and fixes the internal
+        train/validation split.  *None* keeps the transformers random
+        while the internal split stays at its historical fixed seed (42).
 
     Attributes
     ----------
@@ -963,8 +979,9 @@ class DetachEnsemble:
         recompute_alpha=True,
         val_ratio=0.33,
         verbose=False,
-        multiclass_type="norm",
+        multiclass_type="max",
         backend="pytorch",
+        random_state=None,
     ):
         backend = backend.lower()
         if backend not in self._BACKENDS:
@@ -981,10 +998,16 @@ class DetachEnsemble:
         self.verbose = verbose
         self.multiclass_type = multiclass_type
         self.backend = backend
+        self.random_state = random_state
+
+        # One independent seed per member so the transformers differ from
+        # each other but the whole ensemble is reproducible.
+        seed_rng = np.random.default_rng(random_state)
+        member_seeds = seed_rng.integers(0, 2**32 - 1, size=num_models)
 
         self.derockets = []
-        for _ in range(num_models):
-            transformer = TransformerClass(num_features=num_kernels)
+        for m in range(num_models):
+            transformer = TransformerClass(num_features=num_kernels, random_state=int(member_seeds[m]))
             model = DetachRocket(
                 transformer=transformer,
                 trade_off=trade_off,
@@ -1014,13 +1037,16 @@ class DetachEnsemble:
                 ) from e
             return PytorchMiniRocketMultivariate
 
-    def fit(self, X, y):
+    def fit(self, X, y, X_val=None, y_val=None):
         """Fit all ensemble members on the training data.
 
-        When ``set_percentage`` is *None*, a stratified train/validation
-        split is performed (controlled by ``val_ratio``) and passed to
-        each :class:`DetachRocket` model.  When ``set_percentage`` is
-        set, the full training set is used without splitting.
+        When ``set_percentage`` is *None*, each member needs a
+        validation set for pruning-level selection: pass one explicitly
+        via *X_val* / *y_val* (e.g. a subject-wise split for MEG/EEG
+        data), or leave them *None* to use a stratified random split of
+        the training data (controlled by ``val_ratio``).  When
+        ``set_percentage`` is set, the full training set is used and any
+        provided validation set is ignored.
 
         Parameters
         ----------
@@ -1028,11 +1054,18 @@ class DetachEnsemble:
             Multivariate training time series.
         y : array-like of shape (n_instances,)
             Training labels.
+        X_val : array-like or None, default=None
+            Optional explicit validation time series.
+        y_val : array-like or None, default=None
+            Validation labels (required when *X_val* is given).
 
         Returns
         -------
         self
         """
+        if X_val is not None and y_val is None:
+            raise ValueError("y_val is required when X_val is provided.")
+
         if self.backend == "pytorch":
             first_model = self.derockets[0].transformer
             if hasattr(first_model, "device") and first_model.device.type == "cpu":
@@ -1040,13 +1073,16 @@ class DetachEnsemble:
                 warnings.warn(msg, UserWarning)
 
         if self.set_percentage is None:
-            X_train, X_val, y_train, y_val = train_test_split(
-                X,
-                y,
-                test_size=self.val_ratio,
-                random_state=42,
-                stratify=y,
-            )
+            if X_val is not None:
+                X_train, y_train = X, y
+            else:
+                X_train, X_val, y_train, y_val = train_test_split(
+                    X,
+                    y,
+                    test_size=self.val_ratio,
+                    random_state=42 if self.random_state is None else self.random_state,
+                    stratify=y,
+                )
         else:
             X_train, y_train = X, y
             X_val, y_val = None, None

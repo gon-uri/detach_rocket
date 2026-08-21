@@ -11,7 +11,7 @@ def feature_detachment(
     y_test: np.ndarray = None,
     drop_ratio: float = 0.05,
     num_steps: int = 150,
-    multiclass_type: str = "norm",
+    multiclass_type: str = "max",
     verbose: bool = False,
 ):
     """
@@ -35,7 +35,9 @@ def feature_detachment(
         Maximum number of detachment steps (actual steps may be fewer
         when the feature count is small).
     multiclass_type: str
-        Method to calculate feature importance for multiclass classification.
+        Method to calculate feature importance for multiclass
+        classification: "max" (default, as in the Detach-ROCKET paper),
+        "norm", or "avg".
     verbose: bool
         If true, print progress during the detachment process.
 

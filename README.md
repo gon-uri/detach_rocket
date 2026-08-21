@@ -193,7 +193,7 @@ Version 0.1.0 is a rewrite with a cleaner, scikit-learn-style API. The main brea
 | `fit(X, y)` with a silent internal train/val split | Explicit `fit(X, y, X_val=..., y_val=...)`, or `set_percentage=...` to skip validation |
 | `score(X, y)` returned a `(pruned_acc, full_acc)` tuple | `score(X, y)` returns a float; the unpruned baseline is `score_full(X, y)` |
 | Private attributes (`_feature_matrix`, `_classifier`, ...) | scikit-learn style public attributes (`feature_matrix_`, `classifier_`, ...) |
-| `multilabel_type` (default `"max"`) | `multiclass_type` (default `"norm"`, the L2 aggregation) |
+| `multilabel_type` | `multiclass_type` (renamed; default remains `"max"`, as in the paper) |
 | `utils.py` (`feature_detachment`, `select_optimal_model` with built-in plotting) | `sfd.py` (`feature_detachment`) and `model_selection.py` (`select_optimal_pruning`, plotting moved to the notebooks) |
 
 New in 0.1.0: `DetachEnsemble` with PyTorch and CuPy/CUDA MiniRocket backends, physical transformer pruning, `detach()` for lightweight deployment models, and channel relevance estimation.

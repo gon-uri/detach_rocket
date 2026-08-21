@@ -40,6 +40,7 @@ def select_optimal_pruning(
         norm_factor = val_accuracies[0]
 
     x_vec = 1 - retained_ratios
+    # Normalization and smoothing are stability tweaks over the paper's plain objective acc(q) + c*q.
     y_vec = val_accuracies / norm_factor
     box = np.ones(smoothing_points) / smoothing_points
     y_vec_smooth = np.convolve(y_vec, box, mode="same")
