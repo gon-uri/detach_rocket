@@ -44,7 +44,7 @@ class CudaMiniRocketMultivariate:
     """CuPy/CUDA implementation of MiniRocket for multivariate time series.
 
     Plug-and-play replacement (API-level) for PytorchMiniRocketMultivariate:
-      - __init__(num_features=10_000, max_dilations_per_kernel=32, device=None)
+      - __init__(num_features=10_000, max_dilations_per_kernel=32, device=None, random_state=None)
       - fit(X, chunksize=128)
       - forward(x)
       - transform(o, chunksize=128)
@@ -60,7 +60,7 @@ class CudaMiniRocketMultivariate:
 
     kernel_size, num_kernels = 9, 84
 
-    def __init__(self, num_features: int = 10_000, max_dilations_per_kernel: int = 32, device=None):
+    def __init__(self, num_features: int = 10_000, max_dilations_per_kernel: int = 32, device=None, random_state=None):
         if cp is None:
             raise ImportError(
                 "CuPy is required for CudaMiniRocketMultivariate. "
@@ -71,6 +71,7 @@ class CudaMiniRocketMultivariate:
         self.num_features = int(num_features)
         self.max_dilations_per_kernel = int(max_dilations_per_kernel)
         self.device = device  # kept only for signature parity; not used
+        self.random_state = random_state
 
         # learned/fit state
         self.c_in: int | None = None
@@ -118,6 +119,8 @@ class CudaMiniRocketMultivariate:
         `chunksize` is accepted for signature parity; bias computation in MiniRocket
         does not require chunking (it samples only 84 instances per dilation).
         """
+        self._rng = np.random.default_rng(self.random_state)
+
         X_np_shape = self._shape_of(X)
         if len(X_np_shape) != 3:
             raise ValueError(f"Expected X with shape (N, C, L), got {X_np_shape}")
@@ -158,9 +161,9 @@ class CudaMiniRocketMultivariate:
 
             # sample one instance per kernel (84 indices)
             if N >= self.num_kernels:
-                idxs = np.random.choice(N, self.num_kernels, replace=False).astype(np.int32)
+                idxs = self._rng.choice(N, self.num_kernels, replace=False).astype(np.int32)
             else:
-                idxs = np.random.choice(N, self.num_kernels, replace=True).astype(np.int32)
+                idxs = self._rng.choice(N, self.num_kernels, replace=True).astype(np.int32)
 
             biases_i_cp = self._compute_biases_for_dilation_cuda(
                 X_cp=X_cp,
@@ -393,7 +396,7 @@ class CudaMiniRocketMultivariate:
         max_num_channels = min(num_channels, 9)
         max_exponent_channels = np.log2(max_num_channels + 1)
 
-        num_channels_per_combination = (2 ** np.random.uniform(0, max_exponent_channels, num_combinations)).astype(
+        num_channels_per_combination = (2 ** self._rng.uniform(0, max_exponent_channels, num_combinations)).astype(
             np.int32
         )
 
@@ -402,7 +405,7 @@ class CudaMiniRocketMultivariate:
             k = int(num_channels_per_combination[i])
             if k <= 0:
                 k = 1
-            chosen = np.random.choice(num_channels, k, replace=False)
+            chosen = self._rng.choice(num_channels, k, replace=False)
             cc[:, chosen, i, :] = 1.0
 
         # split by dilation: each slice is (1,C,84,1)

@@ -29,6 +29,9 @@ class PytorchMiniRocketMultivariate(nn.Module):
     device : torch.device or None, default=None
         Device to run computations on.  Defaults to CUDA if available,
         otherwise CPU.
+    random_state : int or None, default=None
+        Seed for the NumPy generator that draws the channel combinations
+        and bias samples.  *None* draws a fresh random state at each fit.
 
     References
     ----------
@@ -39,11 +42,12 @@ class PytorchMiniRocketMultivariate(nn.Module):
 
     kernel_size, num_kernels, fitting = 9, 84, False
 
-    def __init__(self, num_features=10_000, max_dilations_per_kernel=32, device=None):
+    def __init__(self, num_features=10_000, max_dilations_per_kernel=32, device=None, random_state=None):
         super().__init__()
         self.num_features = num_features
         self.max_dilations_per_kernel = max_dilations_per_kernel
         self.device = device if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.random_state = random_state
 
     @contextlib.contextmanager
     def _manage_cpu_threads(self):
@@ -59,6 +63,7 @@ class PytorchMiniRocketMultivariate(nn.Module):
             yield
 
     def fit(self, X, chunksize=128):
+        self._rng = np.random.default_rng(self.random_state)
         with self._manage_cpu_threads():
             self.c_in, self.seq_len = X.shape[1], X.shape[2]
             self.num_features = self.num_features // self.num_kernels * self.num_kernels
@@ -89,7 +94,7 @@ class PytorchMiniRocketMultivariate(nn.Module):
                 chunksize = min(num_samples, self.num_dilations * self.num_kernels)  # Deterministic
             else:
                 chunksize = min(num_samples, chunksize)  # Stochastic for chunksize < num_samples
-            idxs = np.random.choice(num_samples, chunksize, False)
+            idxs = self._rng.choice(num_samples, chunksize, replace=False)
             self.fitting = True
             if isinstance(X, np.ndarray):
                 self(torch.from_numpy(X[idxs]).float().to(self.device))
@@ -280,14 +285,14 @@ class PytorchMiniRocketMultivariate(nn.Module):
         num_combinations = self.num_kernels * self.num_dilations
         max_num_channels = min(num_channels, 9)
         max_exponent_channels = np.log2(max_num_channels + 1)
-        num_channels_per_combination = (2 ** np.random.uniform(0, max_exponent_channels, num_combinations)).astype(
+        num_channels_per_combination = (2 ** self._rng.uniform(0, max_exponent_channels, num_combinations)).astype(
             np.int32
         )
         channel_combinations = torch.zeros((1, num_channels, num_combinations, 1))
         for i in range(num_combinations):
-            channel_combinations[:, np.random.choice(num_channels, num_channels_per_combination[i], False), i] = (
-                1  # From all the channels, set to 1 those that will be combined without repeating
-            )
+            channel_combinations[
+                :, self._rng.choice(num_channels, num_channels_per_combination[i], replace=False), i
+            ] = 1  # From all the channels, set to 1 those that will be combined without repeating
         channel_combinations = torch.split(channel_combinations, self.num_kernels, 2)  # split by dilation
         for i, channel_combination in enumerate(channel_combinations):
             self.register_buffer(f"channel_combinations_{i}", channel_combination)  # per dilation
@@ -297,7 +302,7 @@ class PytorchMiniRocketMultivariate(nn.Module):
 
     def _get_bias(self, C, num_features_this_dilation):
         # Gets as many biases as features this dilation, from the quantiles of random samples
-        idxs = np.random.choice(C.shape[0], self.num_kernels)
+        idxs = self._rng.choice(C.shape[0], self.num_kernels)
         samples = C[idxs].diagonal().T
         biases = torch.quantile(samples, self._get_quantiles(num_features_this_dilation).to(C.device), dim=1).T
         return biases
