@@ -29,7 +29,7 @@ Detach-ROCKET applies **Sequential Feature Detachment (SFD)** to ROCKET-family m
 
 The library provides four main classes:
 
-- **`DetachRocket`** — End-to-end model: wraps any ROCKET-family transformer (Rocket, MiniRocket, MultiRocket), prunes it with SFD, and rebuilds a smaller transformer for fast inference. Physical kernel rebuilding is currently implemented for sktime's `Rocket` and the CuPy MiniRocket backend; other transformers use an exact feature-masking fallback (identical predictions, without the inference speedup).
+- **`DetachRocket`** — End-to-end model: wraps any ROCKET-family transformer (Rocket, MiniRocket, MultiRocket), prunes it with SFD, and rebuilds a smaller transformer for fast inference. Both sktime and [aeon](https://www.aeon-toolkit.org/) ROCKET-family transformers are supported (install the `[aeon]` extra for the latter). Physical kernel rebuilding is currently implemented for sktime's `Rocket`, aeon's `Rocket`, and the CuPy MiniRocket backend; other transformers use an exact feature-masking fallback (identical predictions, without the inference speedup).
 
 - **`DetachEnsemble`** — Ensemble of independently randomized Detach-MiniRocket models. Designed for multivariate time series, especially high-dimensional data (e.g. MEG/EEG). Provides class probability estimation and channel relevance scores. Supports `backend="pytorch"` (CPU/GPU) and `backend="cuda"` (CuPy).
 
