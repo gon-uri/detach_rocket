@@ -31,7 +31,9 @@ def ensemble_data():
 @pytest.fixture(scope="module")
 def fitted_ensemble(ensemble_data):
     X, y = ensemble_data
-    ensemble = DetachEnsemble(num_models=2, num_kernels=NUM_KERNELS, set_percentage=50, model_type="multirocket")
+    ensemble = DetachEnsemble(
+        num_models=2, num_kernels=NUM_KERNELS, set_percentage=50, model_type="multirocket", random_state=0
+    )
     ensemble.fit(X, y)
     return ensemble
 
@@ -172,7 +174,7 @@ def fitted_minirocket_aeon(ensemble_data):
     """Deliberately constructed with all defaults (plus size/pruning): this
     exercises the default aeon backend and n_jobs resolution end-to-end."""
     X, y = ensemble_data
-    ensemble = DetachEnsemble(num_models=2, num_kernels=336, set_percentage=50)
+    ensemble = DetachEnsemble(num_models=2, num_kernels=336, set_percentage=50, random_state=0)
     ensemble.fit(X, y)
     return ensemble
 

@@ -20,7 +20,7 @@ def ensemble_data():
 @pytest.fixture(scope="module")
 def fitted_ensemble(ensemble_data):
     X, y = ensemble_data
-    ensemble = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, backend="pytorch")
+    ensemble = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, backend="pytorch", random_state=0)
     ensemble.fit(X, y)
     return ensemble
 
