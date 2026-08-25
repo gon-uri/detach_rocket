@@ -33,8 +33,11 @@ def get_transformer_pruner(transformer):
 
     Parameters
     ----------
-    transformer : sktime transformer
-        A fitted ROCKET-family transformer.
+    transformer : object
+        A fitted ROCKET-family transformer.  Specialized pruners exist for
+        sktime's ``Rocket``, aeon's ``Rocket`` and
+        ``CudaMiniRocketMultivariate``; anything else with a ``transform(X)``
+        method is handled by the generic fallback.
 
     Returns
     -------
@@ -42,6 +45,14 @@ def get_transformer_pruner(transformer):
     """
     if isinstance(transformer, Rocket):
         return RocketTransformerPruner()
+
+    try:
+        from aeon.transformations.collection.convolution_based import Rocket as AeonRocket
+
+        if isinstance(transformer, AeonRocket):
+            return AeonRocketTransformerPruner()
+    except ImportError:
+        pass
 
     try:
         from detach_rocket.cuda_minirocket import CudaMiniRocketMultivariate
@@ -82,6 +93,91 @@ class PrunedRocketTransformer(Rocket):
         X_transf = super().transform(X)
         X_transf = X_transf.to_numpy()
         return X_transf[:, self.features_mask]
+
+
+_PRUNED_AEON_ROCKET_CLASS = None
+
+
+def _get_pruned_aeon_rocket_class():
+    """Return the :class:`PrunedAeonRocketTransformer` class, building it once.
+
+    The class derives from aeon's ``Rocket``, an optional dependency, so it
+    cannot be defined at module import time without making this module
+    unimportable when aeon is absent.  The built class is cached so that
+    ``isinstance`` checks stay meaningful across calls.
+
+    Returns
+    -------
+    cls : type
+        Subclass of :class:`aeon.transformations.collection.convolution_based.Rocket`.
+
+    Raises
+    ------
+    ImportError
+        If aeon is not installed.
+    """
+    global _PRUNED_AEON_ROCKET_CLASS
+
+    if _PRUNED_AEON_ROCKET_CLASS is not None:
+        return _PRUNED_AEON_ROCKET_CLASS
+
+    from aeon.transformations.collection.convolution_based import Rocket as AeonRocket
+
+    class PrunedAeonRocketTransformer(AeonRocket):
+        """A pruned aeon Rocket transformer that outputs only retained features.
+
+        Inherits from :class:`aeon.transformations.collection.convolution_based.Rocket`
+        but overrides ``_transform`` to apply the full convolution with the
+        retained kernels and then select only the columns indicated by
+        ``features_mask``.
+
+        The instance is built already "fitted": its kernels are copied from a
+        fitted parent transformer instead of being generated, so the
+        ``fit_is_empty`` tag marks ``fit`` as a no-op (a real fit would
+        regenerate random kernels and silently discard the pruning), and
+        ``is_fitted`` / ``_n_jobs`` are set here because aeon's transform path
+        expects the state that ``Rocket._fit`` would have left behind.
+
+        Parameters
+        ----------
+        n_kernels : int
+            Number of retained kernels.
+        features_mask : np.ndarray of bool
+            Boolean mask of length ``2 * n_kernels`` indicating which
+            of the two features (PPV and max) per kernel are retained.
+        normalise : bool, default=True
+            Per-instance normalisation setting of the parent transformer.
+            Must match it, otherwise the pruned output no longer equals the
+            masked full output.
+        """
+
+        _tags = {"fit_is_empty": True}
+
+        def __init__(self, n_kernels, features_mask, normalise=True):
+            super().__init__(n_kernels=n_kernels, normalise=normalise)
+            self.features_mask = features_mask
+            self.is_fitted = True
+            self._n_jobs = 1
+
+        def _transform(self, X, y=None):
+            """Transform *X* and return only the retained feature columns."""
+            X_transf = super()._transform(X, y)
+            return X_transf[:, self.features_mask]
+
+    _PRUNED_AEON_ROCKET_CLASS = PrunedAeonRocketTransformer
+    return _PRUNED_AEON_ROCKET_CLASS
+
+
+def __getattr__(name):
+    """Resolve ``PrunedAeonRocketTransformer`` lazily (PEP 562).
+
+    Lets ``from detach_rocket.pruner import PrunedAeonRocketTransformer``
+    work when aeon is installed, while keeping the module importable
+    without it.
+    """
+    if name == "PrunedAeonRocketTransformer":
+        return _get_pruned_aeon_rocket_class()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class PrunedCudaMiniRocketTransformer:
@@ -416,6 +512,128 @@ class RocketTransformerPruner(TransformerPruner):
             retained_num_channel_indices,
             retained_channel_indices,
         )
+
+        return pruned_trf
+
+
+class AeonRocketTransformerPruner(TransformerPruner):
+    """Pruner for :class:`aeon.transformations.collection.convolution_based.Rocket`.
+
+    Extracts the kernel parameters (weights, biases, dilations, paddings,
+    channel indices) corresponding to retained features and builds a
+    ``PrunedAeonRocketTransformer`` instance.  aeon's ``kernels`` tuple has
+    exactly the same layout as sktime's, so the extraction mirrors
+    :class:`RocketTransformerPruner`; only the constructor argument name
+    (``n_kernels``) differs.
+    """
+
+    def prune_transformer(self, original_trf, optimal_feature_mask):
+        """Create a pruned aeon Rocket transformer.
+
+        Parameters
+        ----------
+        original_trf : aeon Rocket
+            A **fitted** aeon Rocket transformer (must have ``kernels``
+            attribute).
+        optimal_feature_mask : np.ndarray of bool
+            Boolean mask of length ``2 * n_kernels``.
+
+        Returns
+        -------
+        pruned_trf : PrunedAeonRocketTransformer
+
+        Raises
+        ------
+        ValueError
+            If *original_trf* has not been fitted.
+        """
+
+        # check if transformer is fit
+        if not hasattr(original_trf, "kernels"):
+            raise ValueError("Transformer must be fit before pruning")
+
+        n_kernels = original_trf.n_kernels
+        optimal_feature_mask = _normalize_feature_mask(optimal_feature_mask)
+        expected_mask_size = 2 * n_kernels
+        if optimal_feature_mask.size != expected_mask_size:
+            raise ValueError(
+                "Rocket feature mask size mismatch: "
+                f"expected {expected_mask_size} features for {n_kernels} kernels, "
+                f"got {optimal_feature_mask.size}."
+            )
+
+        # Precompute number of pruned kernels
+        retained_n_kernels = int(np.sum(optimal_feature_mask[0::2] | optimal_feature_mask[1::2]))
+
+        # Preallocate arrays with the exact number of retained kernels
+        retained_mask = np.full(2 * retained_n_kernels, True)
+        retained_weights = np.zeros(original_trf.kernels[0].shape[0], dtype=np.float32)  # Adjust size later in the loop
+        retained_lengths = np.zeros(retained_n_kernels, dtype=np.int32)
+        retained_biases = np.zeros(retained_n_kernels, dtype=np.float32)
+        retained_dilations = np.zeros(retained_n_kernels, dtype=np.int32)
+        retained_paddings = np.zeros(retained_n_kernels, dtype=np.int32)
+        retained_num_channel_indices = np.zeros(retained_n_kernels, dtype=np.int32)
+        retained_channel_indices = np.zeros(
+            original_trf.kernels[6].shape[0], dtype=np.int32
+        )  # Adjust size later in the loop
+
+        a1 = 0  # for weights
+        a2 = 0  # for channel_indices
+
+        i_retained = 0
+        a1_retained = 0  # for retained_weights
+        a2_retained = 0  # for retained_channel_indices
+
+        for i in range(n_kernels):
+            _length = original_trf.kernels[1][i]
+            _num_channels_indices = original_trf.kernels[5][i]
+
+            b1 = a1 + (_num_channels_indices * _length)
+            b2 = a2 + _num_channels_indices
+
+            # optimal_feature_mask: i or i+1 should be selected
+            if optimal_feature_mask[2 * i] or optimal_feature_mask[2 * i + 1]:
+                retained_mask[2 * i_retained] = optimal_feature_mask[2 * i]
+                retained_mask[2 * i_retained + 1] = optimal_feature_mask[2 * i + 1]
+
+                retained_weights[a1_retained : a1_retained + (b1 - a1)] = original_trf.kernels[0][a1:b1]
+                retained_channel_indices[a2_retained : a2_retained + (b2 - a2)] = original_trf.kernels[6][a2:b2]
+
+                retained_lengths[i_retained] = _length
+                retained_biases[i_retained] = original_trf.kernels[2][i]
+                retained_dilations[i_retained] = original_trf.kernels[3][i]
+                retained_paddings[i_retained] = original_trf.kernels[4][i]
+                retained_num_channel_indices[i_retained] = _num_channels_indices
+
+                a1_retained += b1 - a1
+                a2_retained += b2 - a2
+                i_retained += 1
+
+            a1 = b1
+            a2 = b2
+
+        retained_weights = retained_weights[:a1_retained]
+        retained_channel_indices = retained_channel_indices[:a2_retained]
+
+        # define new retained transformation
+        pruned_class = _get_pruned_aeon_rocket_class()
+        pruned_trf = pruned_class(
+            retained_n_kernels,
+            retained_mask,
+            normalise=getattr(original_trf, "normalise", True),
+        )
+        # define kernels, they will not exist if it was not fit. They are tuple
+        pruned_trf.kernels = (
+            retained_weights,
+            retained_lengths,
+            retained_biases,
+            retained_dilations,
+            retained_paddings,
+            retained_num_channel_indices,
+            retained_channel_indices,
+        )
+        if hasattr(original_trf, "fit_min_length_"):
+            pruned_trf.fit_min_length_ = original_trf.fit_min_length_
 
         return pruned_trf
 
