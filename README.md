@@ -17,9 +17,9 @@ ROCKET models generate thousands of random convolutional features, but most are 
 
 | | Full ROCKET | Detach-ROCKET |
 |---|---|---|
-| Test Accuracy | 79.26% | **81.85%** |
-| Features Retained | 100% | **0.69%** |
-| Inference Time | 34.66s | **0.47s (73x faster)** |
+| Test Accuracy | 80.49% | **82.10%** |
+| Features Retained | 100% | **2.36%** |
+| Inference Time | 21.96s | **1.01s (22x faster)** |
 
 *FordB dataset (UCR archive) — 10,000 kernels. See the [full example notebook](examples/Detach_ROCKET_example_UCR.ipynb).*
 
