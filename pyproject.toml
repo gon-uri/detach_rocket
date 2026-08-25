@@ -31,8 +31,10 @@ classifiers = [
 
 # -- Runtime dependencies ---------------------------------------------------
 dependencies = [
-    # NumPy 2 is required by aeon and is the range this package is tested on.
-    "numpy>=2.0,<2.5",
+    # NumPy 2 is required by aeon.  Capped below 2.4 because aeon 1.5 still
+    # calls np.trapz, which NumPy 2.4 removed (aeon's own <2.5 cap is too
+    # permissive for its code); lift the cap when a fixed aeon ships.
+    "numpy>=2.0,<2.4",
 
     # Match aeon's supported scikit-learn range explicitly, instead of relying
     # on pip to discover this transitive constraint during resolution.  The
