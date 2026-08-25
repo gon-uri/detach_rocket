@@ -90,8 +90,8 @@ def test_random_state_reproducibility(ensemble_data):
     features_3 = t3.fit(X).transform(X).numpy()
     assert not np.array_equal(features_1, features_3)
 
-    e1 = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, random_state=0)
-    e2 = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, random_state=0)
+    e1 = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, backend="pytorch", random_state=0)
+    e2 = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, backend="pytorch", random_state=0)
     e1.fit(X, y)
     e2.fit(X, y)
     assert np.allclose(e1.predict_proba(X), e2.predict_proba(X))
@@ -142,11 +142,13 @@ def test_cpu_threads_management(ensemble_data):
 
 
 def test_ensemble_forwards_n_jobs_as_cpu_threads():
-    """The ensemble's n_jobs reaches the pytorch members as cpu_threads."""
-    ensemble = DetachEnsemble(num_models=1, num_kernels=84, n_jobs=3)
+    """The ensemble's n_jobs reaches the pytorch members as cpu_threads, and
+    the n_jobs=None default resolves to 1 for this backend (the pin stays)."""
+    ensemble = DetachEnsemble(num_models=1, num_kernels=84, backend="pytorch", n_jobs=3)
     assert ensemble.derockets[0].transformer.cpu_threads == 3
 
-    default = DetachEnsemble(num_models=1, num_kernels=84)
+    default = DetachEnsemble(num_models=1, num_kernels=84, backend="pytorch")
+    assert default.n_jobs == 1
     assert default.derockets[0].transformer.cpu_threads == 1
 
 

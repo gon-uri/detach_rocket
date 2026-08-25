@@ -148,8 +148,20 @@ def test_dispatch_validation():
     with pytest.raises(ValueError, match="num_kernels"):
         DetachEnsemble(model_type="minirocket", num_kernels=80)
 
-    # backend=None resolves per model_type (construct only the torch-free one here).
-    assert DetachEnsemble(num_models=1, num_kernels=NUM_KERNELS, model_type="multirocket").backend == "aeon"
+    # Defaults: backend=None resolves to aeon for both model types, and
+    # n_jobs=None resolves to -1 (all cores) on the aeon backend.  The
+    # pytorch side of the n_jobs resolution is asserted in the torch-guarded
+    # test file.
+    default = DetachEnsemble(num_models=1, num_kernels=NUM_KERNELS)
+    assert default.model_type == "minirocket"
+    assert default.backend == "aeon"
+    assert default.n_jobs == -1
+
+    multi = DetachEnsemble(num_models=1, num_kernels=NUM_KERNELS, model_type="multirocket")
+    assert multi.backend == "aeon"
+    assert multi.n_jobs == -1
+
+    assert DetachEnsemble(num_models=1, num_kernels=NUM_KERNELS, n_jobs=2).n_jobs == 2
 
 
 # -- MiniRocket on the aeon backend --------------------------------------------
@@ -157,18 +169,21 @@ def test_dispatch_validation():
 
 @pytest.fixture(scope="module")
 def fitted_minirocket_aeon(ensemble_data):
+    """Deliberately constructed with all defaults (plus size/pruning): this
+    exercises the default aeon backend and n_jobs resolution end-to-end."""
     X, y = ensemble_data
-    ensemble = DetachEnsemble(num_models=2, num_kernels=336, set_percentage=50, backend="aeon", n_jobs=-1)
+    ensemble = DetachEnsemble(num_models=2, num_kernels=336, set_percentage=50)
     ensemble.fit(X, y)
     return ensemble
 
 
 def test_minirocket_aeon_members(fitted_minirocket_aeon):
-    """backend='aeon' with the default model_type builds AeonMiniRocket
-    members; num_kernels passes straight through (it already counts features
-    for MiniRocket, like the torch/cuda backends' num_features)."""
+    """The default configuration builds AeonMiniRocket members on all cores;
+    num_kernels passes straight through (it already counts features for
+    MiniRocket, like the torch/cuda backends' num_features)."""
     assert fitted_minirocket_aeon.model_type == "minirocket"
     assert fitted_minirocket_aeon.backend == "aeon"
+    assert fitted_minirocket_aeon.n_jobs == -1
     for model in fitted_minirocket_aeon.derockets:
         assert isinstance(model.transformer, AeonMiniRocket)
         assert model.transformer.n_kernels == 336

@@ -963,28 +963,31 @@ class DetachEnsemble:
         ``'multirocket'`` uses aeon's numba MultiRocket via
         :class:`~detach_rocket.aeon_multirocket.AeonMultiRocket`
         (CPU only, multithreaded via ``n_jobs``).
-    backend : {'pytorch', 'cuda', 'aeon'} or None, default=None
+    backend : {'aeon', 'pytorch', 'cuda'} or None, default=None
         Which implementation backs the member transformers.  *None*
-        selects the default for ``model_type``: ``'pytorch'`` for
-        MiniRocket and ``'aeon'`` for MultiRocket.  ``'pytorch'`` uses
-        :class:`PytorchMiniRocketMultivariate` (requires PyTorch; runs
+        selects ``'aeon'`` for both model types: aeon's multithreaded
+        numba transformers (CPU only,
+        :class:`~detach_rocket.aeon_minirocket.AeonMiniRocket` /
+        :class:`~detach_rocket.aeon_multirocket.AeonMultiRocket`) — the
+        fastest CPU option, available with the base install.  For GPU
+        MiniRocket choose ``'pytorch'``
+        (:class:`PytorchMiniRocketMultivariate`; requires PyTorch, runs
         on CPU or CUDA GPU — on CPU it is restricted to ``n_jobs``
-        threads, 1 by default, to avoid OpenMP deadlocks), ``'cuda'``
-        uses :class:`CudaMiniRocketMultivariate` (requires CuPy + a CUDA
-        GPU); both are MiniRocket-only.  ``'aeon'`` uses aeon's
-        multithreaded numba transformers (CPU only): the fast CPU option
-        for MiniRocket
-        (:class:`~detach_rocket.aeon_minirocket.AeonMiniRocket`) and the
-        only MultiRocket backend.  A PyTorch MultiRocket backend is a
-        planned follow-up; invalid combinations raise a ``ValueError``.
-    n_jobs : int, default=1
-        Thread budget for each member transformer.  For the ``'aeon'``
-        backends this is aeon's ``n_jobs`` (numba threads; ``-1`` for
-        all cores).  For the ``'pytorch'`` backend it sets the CPU
-        thread count: the default of 1 keeps the OpenMP-safe
-        single-thread restriction, higher values allow that many torch
-        threads, and values < 1 leave PyTorch's own setting untouched.
-        Ignored by the ``'cuda'`` backend and on GPU.
+        torch threads, 1 by default, to avoid OpenMP deadlocks) or
+        ``'cuda'`` (:class:`CudaMiniRocketMultivariate`; requires CuPy
+        + a CUDA GPU); both are MiniRocket-only.  A PyTorch MultiRocket
+        backend is a planned follow-up; invalid combinations raise a
+        ``ValueError``.
+    n_jobs : int or None, default=None
+        Thread budget for each member transformer.  *None* resolves per
+        backend: ``-1`` (all cores) for the ``'aeon'`` backends and
+        ``1`` for ``'pytorch'``, keeping its OpenMP-safe single-thread
+        restriction on CPU.  For the ``'aeon'`` backends this is aeon's
+        ``n_jobs`` (numba threads; ``-1`` for all cores).  For the
+        ``'pytorch'`` backend it sets the CPU thread count: 1 pins to a
+        single thread, higher values allow that many torch threads, and
+        values < 1 leave PyTorch's own setting untouched.  Ignored by
+        the ``'cuda'`` backend and on GPU.
     random_state : int or None, default=None
         Seed controlling the ensemble's randomness: it derives an
         independent seed for every member's transformer (channel
@@ -1006,7 +1009,7 @@ class DetachEnsemble:
     Examples
     --------
     >>> from detach_rocket.detach_classes import DetachEnsemble
-    >>> ensemble = DetachEnsemble(num_models=5, num_kernels=5_000)
+    >>> ensemble = DetachEnsemble(num_models=5, num_kernels=5_000)  # aeon MiniRocket members, all cores
     >>> ensemble.fit(X_train, y_train)
     >>> y_pred = ensemble.predict(X_test)
     >>> relevance = ensemble.estimate_channel_relevance()
@@ -1014,8 +1017,8 @@ class DetachEnsemble:
     >>> # MultiRocket members (aeon/numba, CPU):
     >>> ensemble = DetachEnsemble(num_models=5, num_kernels=5_000, model_type="multirocket")
 
-    >>> # Fast CPU MiniRocket members (aeon/numba):
-    >>> ensemble = DetachEnsemble(num_models=5, num_kernels=5_000, backend="aeon", n_jobs=-1)
+    >>> # MiniRocket on a CUDA GPU (requires the torch or cuda extra):
+    >>> ensemble = DetachEnsemble(num_models=5, num_kernels=5_000, backend="pytorch")
 
     References
     ----------
@@ -1032,7 +1035,11 @@ class DetachEnsemble:
     # each model type.  Kept explicit so an unsupported pairing fails loudly
     # instead of silently falling back to another implementation.
     _VALID_BACKENDS = {"minirocket": ("pytorch", "cuda", "aeon"), "multirocket": ("aeon",)}
-    _DEFAULT_BACKENDS = {"minirocket": "pytorch", "multirocket": "aeon"}
+    # aeon is the default for both model types: it is the fastest CPU
+    # implementation, needs no optional dependency, and keeps the default
+    # deterministic across machines (no hardware sniffing).  GPU users opt
+    # in explicitly with backend="pytorch" or backend="cuda".
+    _DEFAULT_BACKENDS = {"minirocket": "aeon", "multirocket": "aeon"}
     # A member transformer must keep at least one kernel after the internal
     # rounding: 84 features for MiniRocket, 8 * 84 = 672 for MultiRocket.
     _MIN_NUM_KERNELS = {"minirocket": 84, "multirocket": 672}
@@ -1049,7 +1056,7 @@ class DetachEnsemble:
         multiclass_type="max",
         model_type="minirocket",
         backend=None,
-        n_jobs=1,
+        n_jobs=None,
         random_state=None,
     ):
         model_type = model_type.lower()
@@ -1074,6 +1081,12 @@ class DetachEnsemble:
                 f"num_kernels={num_kernels} is too small for model_type='{model_type}': the feature budget must "
                 f"cover at least one kernel-position, i.e. num_kernels >= {self._MIN_NUM_KERNELS[model_type]}."
             )
+
+        if n_jobs is None:
+            # Backend-appropriate default: all cores for the aeon/numba
+            # backends, a single torch CPU thread for pytorch (keeping the
+            # OpenMP-safe restriction; see PytorchMiniRocketMultivariate).
+            n_jobs = -1 if backend == "aeon" else 1
 
         self.num_models = num_models
         self.num_kernels = num_kernels
