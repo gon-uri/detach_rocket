@@ -37,6 +37,8 @@ source and verified numerically in ``tests/test_aeon_multirocket.py``):
 import numpy as np
 from aeon.transformations.collection.convolution_based import MultiRocket
 
+from detach_rocket._aeon_kernel_maps import block_map, block_width
+
 
 class AeonMultiRocket(MultiRocket):
     """aeon ``MultiRocket`` with per-feature kernel parameter lookup.
@@ -70,9 +72,6 @@ class AeonMultiRocket(MultiRocket):
     #: Storage order of the pooling-operator blocks in the transform output,
     #: matching the integer codes returned by ``get_kernel_features("poolings")``.
     POOLING_NAMES = ("ppv", "lspv", "mpv", "mipv")
-
-    _N_KERNELS = 84  # fixed MiniRocket/MultiRocket kernel count
-    _KERNEL_SIZE = 9
 
     def _fit(self, X, y=None):
         """Record the channel count, validate the input, and fit as aeon does."""
@@ -126,8 +125,8 @@ class AeonMultiRocket(MultiRocket):
         if which not in valid:
             raise ValueError(f'"{which}" is not recognized as a feature. Possible features are {valid}.')
 
-        n_base = self._block_width(self.parameter)
-        n_diff = self._block_width(self.parameter1)
+        n_base = block_width(self.parameter)
+        n_diff = block_width(self.parameter1)
         num_features = 4 * (n_base + n_diff)
 
         where = np.asarray(where, dtype=bool)
@@ -147,82 +146,12 @@ class AeonMultiRocket(MultiRocket):
             # come from each representation's own tuple, but the channel
             # combinations always come from the BASE tuple: aeon's transform
             # discards parameter1's combinations (see the module docstring).
-            base_block = self._block_map(which, self.parameter, self.parameter)
-            diff_block = self._block_map(which, self.parameter1, self.parameter)
+            indices = MultiRocket._indices
+            base_block = block_map(which, self.parameter, self.parameter, self.n_channels_, indices)
+            diff_block = block_map(which, self.parameter1, self.parameter, self.n_channels_, indices)
             reps = (4,) if base_block.ndim == 1 else (4, 1)
             full_features = np.concatenate([np.tile(base_block, reps), np.tile(diff_block, reps)])
 
         if full_features.ndim == 2:
             where = np.repeat(where[:, np.newaxis], full_features.shape[1], axis=1)
         return np.where(where, full_features, np.nan)
-
-    @staticmethod
-    def _block_width(params):
-        """Number of features in one pooling block of a representation."""
-        n_features_per_dilation = params[-2]
-        return AeonMultiRocket._N_KERNELS * int(np.sum(n_features_per_dilation))
-
-    def _block_map(self, which, params, combo_params):
-        """Build the per-feature parameter map for one pooling block.
-
-        Feature order within a block is dilation-ascending, then kernel
-        0..83, then quantile — exactly the order in which aeon's transform
-        writes the columns.
-
-        Parameters
-        ----------
-        which : str
-            One of ``"biases"``, ``"channels"``, ``"weights"``,
-            ``"dilations"``, ``"paddings"``.
-        params : tuple
-            The fitted ``parameter`` / ``parameter1`` tuple of the block's
-            representation: 5 elements for multivariate input, 3 for
-            univariate.  Supplies the layout (dilations, quantile counts)
-            and the biases.
-        combo_params : tuple
-            The tuple supplying the channel combinations.  Always the BASE
-            ``parameter``: aeon's transform applies the base combinations
-            to both representations.
-
-        Returns
-        -------
-        block : np.ndarray
-            Shape ``(block_width, ...)`` as documented in
-            :meth:`get_kernel_features`.
-        """
-        n_kernels = self._N_KERNELS
-        dilations = np.asarray(params[-3], dtype=int)
-        npd = np.asarray(params[-2], dtype=int)
-        biases = params[-1]
-
-        if which == "biases":
-            # aeon fits biases in (dilation, kernel, quantile) order already.
-            return np.asarray(biases, dtype=float)
-        if which == "dilations":
-            return np.repeat(dilations, n_kernels * npd).astype(float)
-        if which == "paddings":
-            return np.repeat((self._KERNEL_SIZE - 1) * dilations // 2, n_kernels * npd).astype(float)
-
-        kernel_of_feature = np.concatenate([np.repeat(np.arange(n_kernels), q) for q in npd])
-
-        if which == "weights":
-            weights = np.full((n_kernels, self._KERNEL_SIZE), -1.0)
-            weights[np.arange(n_kernels)[:, np.newaxis], MultiRocket._indices] = 2.0
-            return weights[kernel_of_feature]
-
-        # which == "channels"
-        if len(combo_params) != 5:  # univariate fit: no channel combinations are drawn
-            return np.ones((n_kernels * int(npd.sum()), 1), dtype=float)
-        n_channels_per_combination, channel_indices = combo_params[0], combo_params[1]
-
-        # One combination per (dilation, kernel): combination_index = d * 84 + k,
-        # where d indexes this block's own dilations but the combinations are
-        # the base representation's (never fewer dilations than this block).
-        combination_of_feature = np.concatenate(
-            [np.repeat(d * n_kernels + np.arange(n_kernels), npd[d]) for d in range(len(dilations))]
-        )
-        n_combinations = len(n_channels_per_combination)
-        indicator = np.zeros((n_combinations, self.n_channels_), dtype=float)
-        rows = np.repeat(np.arange(n_combinations), n_channels_per_combination)
-        indicator[rows, channel_indices] = 1.0
-        return indicator[combination_of_feature]
