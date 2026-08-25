@@ -197,45 +197,32 @@ Detailed usage examples are available in the [examples folder](examples/):
 - `detach_rocket/pytorch_minirocket.py`: PyTorch MiniRocket implementation (CPU/GPU).
 - `detach_rocket/cuda_minirocket.py`: CuPy/CUDA MiniRocket implementation.
 
-## Migrating from 0.1.x
-
-Version 0.2.0 replaces [sktime](https://www.sktime.net/) with [aeon](https://www.aeon-toolkit.org/) as the base transformer and dataset dependency. The model classes, their parameters, and their behavior are unchanged — what changes is how you build the transformer you pass in and how you load data:
-
-| 0.1.x | 0.2.0 |
-|---|---|
-| `from sktime.transformations.panel.rocket import Rocket` | `from aeon.transformations.collection.convolution_based import Rocket` |
-| `Rocket(num_kernels=10_000)` | `Rocket(n_kernels=10_000)` — aeon renamed the argument |
-| `from detach_rocket.utils_datasets import fetch_ucr_dataset` (or `fetch_uea_dataset`) | `from aeon.datasets import load_classification` — one loader for both archives |
-| `fetch_ucr_dataset("FordB")` returned both splits in one `Bunch` | `load_classification("FordB", split="train")` returns `(X, y)` for a single split, so call it once per split |
-| Univariate `X` came back 2D `(n_instances, n_timepoints)` | Univariate `X` comes back 3D `(n_instances, 1, n_timepoints)` — both are accepted as model input |
-| `pip install "detach_rocket[datasets]"` | The `datasets` extra is gone — aeon's loaders come with the base install |
-| `PrunedRocketTransformer`, `RocketTransformerPruner` | `PrunedAeonRocketTransformer`, `AeonRocketTransformerPruner` |
-| Python ≥3.10, NumPy 1 or 2 | Python ≥3.11, NumPy ≥2 (both required by aeon) |
-
-Transformers you supply yourself keep working regardless of their origin: sktime transformers, scikit-learn transformers, and anything else exposing `transform(X)` still fit and predict correctly through the feature-masking fallback. They simply do not get a physically rebuilt transformer, so `detach()` gives identical predictions without the inference speedup.
-
-> **Intel Mac / x86_64 users needing the `[torch]` extra:** the newest macOS x86_64 torch wheel requires NumPy 1, which conflicts with the NumPy ≥2 floor aeon imposes. Stay on the last sktime-based release, which is tagged and supports NumPy 1 on that platform:
->
-> ```bash
-> pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket@v0.1.0"
-> ```
-
 ## Migrating from 0.0.x
 
-Version 0.1.0 is a rewrite with a cleaner, scikit-learn-style API. The main breaking changes:
+Version 0.2.0 is a full rework of the library, with a cleaner scikit-learn-style API built on [aeon](https://www.aeon-toolkit.org/). The main changes relative to the original 0.0.x releases:
 
-| 0.0.x | 0.1.0+ |
+| 0.0.x | 0.2.0 |
 |---|---|
-| `DetachRocket(model_type="rocket", num_kernels=10000)` | `DetachRocket(transformer=Rocket(n_kernels=10_000))` — pass any transformer instance |
+| `DetachRocket(model_type="rocket", num_kernels=10000)` | `DetachRocket(transformer=Rocket(n_kernels=10_000))` — construct the transformer yourself with `from aeon.transformations.collection.convolution_based import Rocket`, or pass any object with `transform(X)` |
 | `fit(X, y)` with a silent internal train/val split | Explicit `fit(X, y, X_val=..., y_val=...)`, or `set_percentage=...` to skip validation |
 | `score(X, y)` returned a `(pruned_acc, full_acc)` tuple | `score(X, y)` returns a float; the unpruned baseline is `score_full(X, y)` |
 | Private attributes (`_feature_matrix`, `_classifier`, ...) | scikit-learn style public attributes (`feature_matrix_`, `classifier_`, ...) |
 | `multilabel_type` | `multiclass_type` (renamed; default remains `"max"`, as in the paper) |
 | `utils.py` (`feature_detachment`, `select_optimal_model` with built-in plotting) | `sfd.py` (`feature_detachment`) and `model_selection.py` (`select_optimal_pruning`, plotting moved to the notebooks) |
+| `utils_datasets.fetch_ucr_dataset(...)` returned both splits in one `Bunch`, univariate `X` as 2D | `from aeon.datasets import load_classification`; `load_classification("FordB", split="train")` returns `(X, y)` per split, univariate `X` as 3D `(n_instances, 1, n_timepoints)` — both shapes are accepted as model input |
+| Python ≥3.7 | Python ≥3.11, NumPy ≥2 (both required by aeon) |
 
-New in 0.1.0: `DetachEnsemble` with PyTorch and CuPy/CUDA MiniRocket backends, physical transformer pruning, `detach()` for lightweight deployment models, and channel relevance estimation.
+New since 0.0.x: `DetachEnsemble` with PyTorch and CuPy/CUDA MiniRocket backends, physical transformer pruning with `detach()` for lightweight deployment models, channel relevance estimation, label probabilities via weighted soft voting, and `random_state` for reproducibility.
 
-Two behavior fixes worth knowing: 0.0.x retrained the final classifier on the feature set of the step *before* the selected one (an off-by-one in the mask reconstruction) and fitted the scaler before the internal train/val split; 0.1.0 retrains exactly the selected feature set and keeps validation data out of the scaler fit.
+Transformers you supply yourself keep working regardless of their origin: sktime transformers, scikit-learn transformers, and anything else exposing `transform(X)` still fit and predict correctly through the feature-masking fallback. They simply do not get a physically rebuilt transformer, so `detach()` gives identical predictions without the inference speedup.
+
+> **Intel Mac / x86_64 users needing the `[torch]` extra:** the newest macOS x86_64 torch wheel requires NumPy 1, which conflicts with the NumPy ≥2 floor aeon imposes. Use the transitional release `v0.1.0` (the same API as 0.2.0, built on sktime, supporting NumPy 1 on that platform):
+>
+> ```bash
+> pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket@v0.1.0"
+> ```
+
+Two behavior fixes worth knowing: 0.0.x retrained the final classifier on the feature set of the step *before* the selected one (an off-by-one in the mask reconstruction) and fitted the scaler before the internal train/val split; the rework retrains exactly the selected feature set and keeps validation data out of the scaler fit.
 
 ## Troubleshooting
 
