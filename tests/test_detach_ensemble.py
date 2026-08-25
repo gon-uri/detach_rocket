@@ -117,6 +117,39 @@ def test_univariate_2d_input_warns_and_works(ensemble_data):
     assert np.isclose(relevance.sum(), 1.0)
 
 
+def test_cpu_threads_management(ensemble_data):
+    """cpu_threads controls torch's CPU thread count during fit/transform:
+    1 (default) pins to a single thread, higher values allow that many, and
+    values < 1 leave torch's own setting untouched."""
+    import torch
+
+    original = torch.get_num_threads()
+    device = torch.device("cpu")
+
+    pinned = PytorchMiniRocketMultivariate(num_features=84, device=device)
+    with pinned._manage_cpu_threads():
+        assert torch.get_num_threads() == 1
+    assert torch.get_num_threads() == original
+
+    two = PytorchMiniRocketMultivariate(num_features=84, device=device, cpu_threads=2)
+    with two._manage_cpu_threads():
+        assert torch.get_num_threads() == 2
+    assert torch.get_num_threads() == original
+
+    unmanaged = PytorchMiniRocketMultivariate(num_features=84, device=device, cpu_threads=-1)
+    with unmanaged._manage_cpu_threads():
+        assert torch.get_num_threads() == original
+
+
+def test_ensemble_forwards_n_jobs_as_cpu_threads():
+    """The ensemble's n_jobs reaches the pytorch members as cpu_threads."""
+    ensemble = DetachEnsemble(num_models=1, num_kernels=84, n_jobs=3)
+    assert ensemble.derockets[0].transformer.cpu_threads == 3
+
+    default = DetachEnsemble(num_models=1, num_kernels=84)
+    assert default.derockets[0].transformer.cpu_threads == 1
+
+
 def test_invalid_input_dimensions_raise(ensemble_data):
     """Non-2D/3D ensemble input and 2D backend input fail with clear errors."""
     X, y = ensemble_data

@@ -1,13 +1,15 @@
-"""Tests for DetachEnsemble with MultiRocket members.
+"""Tests for DetachEnsemble with aeon-backed members (MultiRocket, and
+MiniRocket on backend="aeon").
 
 Deliberately torch-free (unlike tests/test_detach_ensemble.py, which guards
-on torch at module level): the aeon MultiRocket path must work without the
-optional PyTorch dependency.
+on torch at module level): the aeon paths must work without the optional
+PyTorch dependency.
 """
 
 import numpy as np
 import pytest
 
+from detach_rocket.aeon_minirocket import AeonMiniRocket
 from detach_rocket.aeon_multirocket import AeonMultiRocket
 from detach_rocket.detach_classes import DetachEnsemble
 
@@ -136,8 +138,6 @@ def test_dispatch_validation():
         DetachEnsemble(model_type="multirocket", backend="pytorch")
     with pytest.raises(ValueError, match="MiniRocket-only"):
         DetachEnsemble(model_type="multirocket", backend="cuda")
-    with pytest.raises(ValueError, match="channel relevance"):
-        DetachEnsemble(model_type="minirocket", backend="aeon")
     with pytest.raises(ValueError, match="model_type"):
         DetachEnsemble(model_type="rocket")
     with pytest.raises(ValueError, match="backend"):
@@ -150,3 +150,54 @@ def test_dispatch_validation():
 
     # backend=None resolves per model_type (construct only the torch-free one here).
     assert DetachEnsemble(num_models=1, num_kernels=NUM_KERNELS, model_type="multirocket").backend == "aeon"
+
+
+# -- MiniRocket on the aeon backend --------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def fitted_minirocket_aeon(ensemble_data):
+    X, y = ensemble_data
+    ensemble = DetachEnsemble(num_models=2, num_kernels=336, set_percentage=50, backend="aeon", n_jobs=-1)
+    ensemble.fit(X, y)
+    return ensemble
+
+
+def test_minirocket_aeon_members(fitted_minirocket_aeon):
+    """backend='aeon' with the default model_type builds AeonMiniRocket
+    members; num_kernels passes straight through (it already counts features
+    for MiniRocket, like the torch/cuda backends' num_features)."""
+    assert fitted_minirocket_aeon.model_type == "minirocket"
+    assert fitted_minirocket_aeon.backend == "aeon"
+    for model in fitted_minirocket_aeon.derockets:
+        assert isinstance(model.transformer, AeonMiniRocket)
+        assert model.transformer.n_kernels == 336
+        assert model.feature_mask_.size == 336
+
+
+def test_minirocket_aeon_predict_and_relevance(fitted_minirocket_aeon, ensemble_data):
+    X, y = ensemble_data
+
+    proba = fitted_minirocket_aeon.predict_proba(X)
+    assert proba.shape == (len(y), 2)
+    assert np.allclose(proba.sum(axis=1), 1.0)
+    assert fitted_minirocket_aeon.predict(X).shape == y.shape
+    assert 0.0 <= fitted_minirocket_aeon.score(X, y) <= 1.0
+
+    relevance = fitted_minirocket_aeon.estimate_channel_relevance()
+    assert relevance.shape == (3,)
+    assert np.isclose(relevance.sum(), 1.0)
+    # Channel 0 carries the class signal, so it should dominate.
+    assert relevance.argmax() == 0
+
+
+def test_minirocket_aeon_reproducibility(ensemble_data):
+    """Same random_state must give identical ensemble outputs."""
+    X, y = ensemble_data
+
+    kwargs = dict(num_models=2, num_kernels=336, set_percentage=50, backend="aeon", random_state=0)
+    e1 = DetachEnsemble(**kwargs)
+    e2 = DetachEnsemble(**kwargs)
+    e1.fit(X, y)
+    e2.fit(X, y)
+    assert np.allclose(e1.predict_proba(X), e2.predict_proba(X))

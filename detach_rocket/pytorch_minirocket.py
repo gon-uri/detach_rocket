@@ -32,6 +32,17 @@ class PytorchMiniRocketMultivariate(nn.Module):
     random_state : int or None, default=None
         Seed for the NumPy generator that draws the channel combinations
         and bias samples.  *None* draws a fresh random state at each fit.
+    cpu_threads : int, default=1
+        Number of PyTorch threads used while fitting/transforming on CPU.
+        The default of 1 keeps ATen's ``parallel_for`` from ever spawning
+        an OpenMP team, which prevents deadlocks on stacks where several
+        OpenMP runtimes coexist in one process (e.g. torch + MKL in some
+        conda environments).  Set a higher value to allow that many
+        threads, or any value < 1 to leave PyTorch's own thread setting
+        untouched.  Speedups are modest either way — this implementation
+        is memory-bound on CPU; for a fast CPU MiniRocket see
+        :class:`~detach_rocket.aeon_minirocket.AeonMiniRocket`.  Ignored
+        on GPU.
 
     References
     ----------
@@ -42,19 +53,26 @@ class PytorchMiniRocketMultivariate(nn.Module):
 
     kernel_size, num_kernels, fitting = 9, 84, False
 
-    def __init__(self, num_features=10_000, max_dilations_per_kernel=32, device=None, random_state=None):
+    def __init__(self, num_features=10_000, max_dilations_per_kernel=32, device=None, random_state=None, cpu_threads=1):
         super().__init__()
         self.num_features = num_features
         self.max_dilations_per_kernel = max_dilations_per_kernel
         self.device = device if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.random_state = random_state
+        self.cpu_threads = cpu_threads
 
     @contextlib.contextmanager
     def _manage_cpu_threads(self):
-        """Context manager to prevent OpenMP CPU deadlocks."""
-        if self.device.type == "cpu":
+        """Restrict PyTorch to ``cpu_threads`` threads while running on CPU.
+
+        With 1 thread (the default) ATen runs its loops inline and never
+        enters an OpenMP parallel region, which prevents deadlocks on
+        stacks with conflicting OpenMP runtimes.  Values < 1 skip thread
+        management entirely.
+        """
+        if self.device.type == "cpu" and self.cpu_threads >= 1:
             original_threads = torch.get_num_threads()
-            torch.set_num_threads(1)
+            torch.set_num_threads(self.cpu_threads)
             try:
                 yield
             finally:
