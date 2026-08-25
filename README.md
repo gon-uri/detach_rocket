@@ -227,7 +227,9 @@ Version 0.2.0 is a full rework of the library, with a cleaner scikit-learn-style
 | `utils_datasets.fetch_ucr_dataset(...)` returned both splits in one `Bunch`, univariate `X` as 2D | `from aeon.datasets import load_classification`; `load_classification("FordB", split="train")` returns `(X, y)` per split, univariate `X` as 3D `(n_instances, 1, n_timepoints)` — both shapes are accepted as model input |
 | Python ≥3.7 | Python ≥3.11, NumPy ≥2 (both required by aeon) |
 
-New since 0.0.x: `DetachEnsemble` with aeon/numba members by default (MiniRocket or MultiRocket via `model_type="multirocket"`) and optional PyTorch / CuPy-CUDA MiniRocket backends for GPU, physical transformer pruning with `detach()` for lightweight deployment models, channel relevance estimation, label probabilities via weighted soft voting, and `random_state` for reproducibility.
+New since 0.0.x: `DetachEnsemble` with PyTorch and CuPy/CUDA MiniRocket backends, physical transformer pruning with `detach()` for lightweight deployment models, channel relevance estimation, label probabilities via weighted soft voting, and `random_state` for reproducibility.
+
+Added in 0.2.1: `DetachEnsemble` supports MultiRocket members (`model_type="multirocket"`) and gains an aeon/numba backend — multithreaded on CPU and available with the base install (no torch needed) — which is now the default for both model types. GPU users select `backend="pytorch"` or `backend="cuda"` explicitly (in 0.2.0 the default was `backend="pytorch"`).
 
 Transformers you supply yourself keep working regardless of their origin: sktime transformers, scikit-learn transformers, and anything else exposing `transform(X)` still fit and predict correctly through the feature-masking fallback. They simply do not get a physically rebuilt transformer, so `detach()` gives identical predictions without the inference speedup.
 
