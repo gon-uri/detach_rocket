@@ -414,10 +414,12 @@ class DetachRocket(BaseDetach):
 
     Parameters
     ----------
-    transformer : sktime transformer
-        A fitted-or-unfitted ROCKET-family transformer (e.g.
-        ``Rocket``, ``MiniRocketMultivariate``,
-        ``MultiRocketMultivariate``).
+    transformer : object
+        A fitted-or-unfitted ROCKET-family transformer (e.g. aeon's
+        ``Rocket``, ``MiniRocket``, ``MultiRocket``).  Any object
+        exposing ``fit_transform(X)`` and ``transform(X)`` works; see
+        :func:`~detach_rocket.pruner.get_transformer_pruner` for which
+        ones are pruned physically rather than by feature masking.
     trade_off : float, default=0.1
         Weight given to model compression when selecting the optimal
         pruning level.
@@ -448,7 +450,7 @@ class DetachRocket(BaseDetach):
         Regularization alpha selected on the full model.
     feature_mask_ : np.ndarray of bool
         Boolean mask indicating which features are retained.
-    pruned_transformer_ : PrunedRocketTransformer
+    pruned_transformer_ : object
         Transformer that directly produces only the retained features.
     retained_ratios_ : np.ndarray
         Proportion of features retained at each SFD step.
@@ -465,9 +467,9 @@ class DetachRocket(BaseDetach):
 
     Examples
     --------
-    >>> from sktime.transformations.panel.rocket import Rocket
+    >>> from aeon.transformations.collection.convolution_based import Rocket
     >>> from detach_rocket.detach_classes import DetachRocket
-    >>> rocket = Rocket(num_kernels=10_000)
+    >>> rocket = Rocket(n_kernels=10_000)
     >>> model = DetachRocket(transformer=rocket, trade_off=0.1)
     >>> model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
     >>> y_pred = model.predict(X_test)
@@ -541,8 +543,8 @@ class DetachRocket(BaseDetach):
         X : array-like
             Training time series of shape
             ``(n_instances, n_channels, n_timepoints)``.  For univariate
-            data with sktime transformers a 2D
-            ``(n_instances, n_timepoints)`` array is also accepted.
+            data aeon transformers also accept a 2D
+            ``(n_instances, n_timepoints)`` array.
         y : array-like of shape (n_instances,)
             Training labels.
         X_val : array-like or None, default=None
@@ -669,7 +671,9 @@ class DetachRocket(BaseDetach):
         summary : dict
         """
         summary = super().get_summary()
-        # sktime names the attribute num_kernels, aeon n_kernels.
+        # The CUDA pruned transformer names the attribute num_kernels, aeon's
+        # n_kernels; the generic wrapper exposes num_kernels=None, since kernel
+        # semantics are undefined for arbitrary transformers.
         retained_kernel_count = getattr(self.pruned_transformer_, "num_kernels", None)
         if retained_kernel_count is None:
             retained_kernel_count = getattr(self.pruned_transformer_, "n_kernels", None)
