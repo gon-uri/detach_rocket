@@ -261,6 +261,93 @@ Prereq: Stage 3 done (README's new numbers come from this stage's runs).
 
 ## Progress log (agents append here, newest first)
 
+- 2026-08-25: **Stage 4 done** (agent). All three notebooks ported to aeon,
+  re-executed in place with fresh outputs, and the README results table synced
+  from the new FordB run. Gates: `pytest` **35 passed** (5.2 s), `ruff check .`
+  and `ruff format --check .` clean (17 files; notebooks are ruff-excluded).
+  JSON sanity check passes for all three: plain-JSON parse + `nbformat.validate`,
+  cell counts 11 / 10 / 13 unchanged, **zero** `error` outputs, one `image/png`
+  per plotting cell, and each `!pip install` cell left unexecuted and
+  output-free.
+  - Env prep, installed into `detach_aeon`: matplotlib 3.11.1, nbconvert 7.17.1,
+    nbformat 5.11.1, ipykernel 7.3.0, tsfresh 0.21.2. (Already present: aeon
+    1.5.0, numpy 2.3.5, scikit-learn 1.7.2, pandas 2.3.3, numba 0.63.1, torch
+    2.13.0, pytest 9.1.1, ruff 0.16.4, Python 3.12.14.)
+  - **tsfresh extractor: aeon has a working equivalent, so sktime was NOT added
+    back.** `aeon.transformations.collection.feature_based.TSFresh` takes the
+    same three kwargs the notebook used (`default_fc_parameters="comprehensive"`,
+    `show_warnings=False`, `disable_progressbar=True` — identical names) and its
+    `_transform` ends in `Xt.to_numpy()`, i.e. a **2D** `(n_cases, n_features)`
+    array, exactly what `DetachMatrix` wants. Decisive evidence: the re-run
+    reproduces the sktime-era numbers **exactly** — 783 features, 75.41% full,
+    74.94% detached, 23.75% optimal size. As a bonus the two sklearn
+    "X does not have valid feature names, but StandardScaler was fitted with
+    feature names" warnings are gone, because aeon returns numpy where sktime
+    returned a DataFrame. `fit_is_empty=True` on that class, and the
+    `fit_transform(train)` → `transform(test)` sequence the notebook uses was
+    verified to survive aeon's `reset()` (unlike the pruned-Rocket hazard from
+    Stage 2) — `default_fc_parameters_` is still intact afterwards.
+  - **`np.random.seed` no longer reaches ROCKET's kernels.** aeon's
+    `Rocket._fit` hands `self.random_state` straight to the numba-jitted
+    `_generate_kernels`, and numba keeps its own RNG state: verified that two
+    fits under the same `np.random.seed(42)` give **different** kernels, while
+    `random_state=42` is reproducible across different numpy seeds. The UCR
+    notebook already carried `np.random.seed(42)` and a seeded
+    `train_test_split`, so that seed had silently become a no-op for the part
+    that matters. `random_state=42` is therefore passed explicitly to
+    `Rocket(...)` — a deviation from the literal task text, taken to preserve
+    the notebook's existing reproducibility intent and to make the committed
+    README numbers reproducible. `np.random.seed(42)` was left in place.
+  - **Shape handling.** `load_classification` returns exactly the same cases and
+    lengths as the old loaders, just 3D: FordB (3636, 1, 500)/(810, 1, 500),
+    PhalangesOutlinesCorrect (1800, 1, 80)/(858, 1, 80), SelfRegulationSCP1
+    (268, 6, 896)/(293, 6, 896) — the last identical to before. In the UCR and
+    tsfresh "Prepare Dataset Matrices" cells the NaN/inf masks moved from
+    `axis=1` to `axis=(1, 2)`, the manual `reshape(n, 1, t)` was **deleted** (the
+    data already arrives 3D), and the printed header became the three-component
+    `( # of instances , # of channels , time series length )` the UEA notebook
+    already used — so the cell stays informative and now matches what it prints.
+  - **README table, old → new** (line ~20, FordB, 10,000 kernels):
+    accuracy 79.26% → **80.49%** full and 81.85% → **82.10%** detached; features
+    retained 0.69% → **2.36%**; inference 34.66 s → **21.96 s** full and 0.47 s →
+    **1.01 s** detached; speedup 73x → **22x**. Accuracy is squarely in the same
+    band (parity, as Stage 5 expects). The speedup moved for two independent
+    reasons worth not confusing: SFD kept ~3.4x more features this time (a
+    genuine kernel-RNG difference between the libraries), and the machine is
+    faster (the *full* model got quicker, 34.66 → 21.96 s). Nothing about the
+    method regressed.
+  - Runtimes on this machine, each executed alone so the UCR timing cell was not
+    perturbed by competing load: UCR **141.8 s**, tsfresh **110.2 s**, UEA
+    ensemble **825.1 s** (~13.8 min).
+  - UEA ensemble: 98.13% train / **92.49% test** — the test figure is identical
+    to the old run. Its output is also far cleaner now: the previous version had
+    ~100 lines of `Singular matrix in solving dual problem` / `LinAlgWarning`
+    noise, and commit ddb2f6e's warning suppression reduces stderr to the single
+    expected "PyTorch is running on CPU" `UserWarning`.
+  - Runner (scratch, **not committed**): `nbformat` + an `ExecutePreprocessor`
+    subclass whose `preprocess_cell` short-circuits cells whose source starts
+    with `!pip install`, clearing their outputs and `execution_count`.
+    `kernel_name="python3"`, `timeout=3600`, cwd = `examples/`.
+  - **Gotcha for Stage 5:** `detach_rocket` is **not** installed into
+    `detach_aeon` (pytest only works because `python -m pytest` from the repo
+    root puts cwd on `sys.path`). A notebook kernel runs with cwd = `examples/`,
+    so it cannot import the package — the first run died with
+    `ModuleNotFoundError: No module named 'detach_rocket'`. Executing the
+    notebooks needs `PYTHONPATH=/Users/uribarri/Documents/detach_rocket` (or a
+    real `pip install -e .`). Stage 5's fresh-env test installs from GitHub, so
+    it will not hit this, but anyone re-running the notebooks locally will.
+  - Install cells now read `detach_rocket @ git+…` (UCR), `detach_rocket[torch] @
+    git+…` (UEA) and `detach_rocket @ git+… matplotlib tsfresh` (tsfresh); they
+    point at the plain repo URL, which resolves to the new main post-merge.
+    `nbformat` round-trips all three files byte-identically, so the diffs contain
+    only real changes. The one surviving `num_kernels` in the UEA notebook is
+    `DetachEnsemble(num_models=…, num_kernels=…)` — the library's own parameter
+    name, correctly untouched. The ensemble cell was left without a
+    `random_state` (that notebook never had a seed; its numbers are stochastic by
+    design). The tsfresh notebook's `multiclass_type` output now prints `'max'`
+    rather than the old `'norm'` — that is commit 87b6c2c's restored default, not
+    a Stage 4 change.
+
 - 2026-08-25: **Stage 3 done** (agent). README full pass, CI bumped, pyproject
   classifiers checked. Gates: `pytest` **35 passed** (5.5 s), `ruff check .`
   and `ruff format --check .` clean — docs-only changes, no test movement.
