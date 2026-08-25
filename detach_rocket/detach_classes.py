@@ -908,9 +908,9 @@ class DetachEnsemble:
     """Ensemble of Detach-ROCKET models for multivariate time series.
 
     Creates multiple :class:`DetachRocket` models — each with an
-    independently randomized MiniRocket transformer — fits them
-    independently, and combines their predictions via soft or hard
-    voting.  Also provides channel-relevance estimation for
+    independently randomized MiniRocket or MultiRocket transformer —
+    fits them independently, and combines their predictions via soft or
+    hard voting.  Also provides channel-relevance estimation for
     multivariate data.
 
     Parameters
@@ -918,9 +918,25 @@ class DetachEnsemble:
     num_models : int, default=25
         Number of Detach-ROCKET models in the ensemble.
     num_kernels : int, default=10_000
-        Number of MiniRocket features per model (passed to the backend
-        as ``num_features`` and rounded down to a multiple of 84, the
-        number of fixed MiniRocket kernels).
+        Feature budget per model: despite the historical name, this
+        parameter counts the (approximate) number of *features* each
+        member transformer produces, for both model types.
+
+        - ``model_type="minirocket"``: passed to the backend as
+          ``num_features`` and rounded down to a multiple of 84 (the
+          number of fixed MiniRocket kernels).  Default 10_000 → 9_996
+          features per model.
+        - ``model_type="multirocket"``: MultiRocket produces 8 features
+          per kernel-position (4 pooling operators × {raw series,
+          first-order difference}), so ``num_kernels // 8`` is passed to
+          aeon as ``n_kernels`` and floored internally to a multiple of
+          84 kernel-positions.  Default 10_000 → 1_250 aeon kernels →
+          9_408 features per model.  For the MultiRocket paper's default
+          scale (6_250 kernels ≈ 50k features) use
+          ``num_kernels=50_000``.
+
+        Keeping the budget in features means switching ``model_type``
+        leaves the per-member SFD/classifier cost roughly unchanged.
     trade_off : float, default=0.1
         Trade-off parameter passed to each :class:`DetachRocket`.
     set_percentage : float or None, default=None
@@ -941,11 +957,27 @@ class DetachEnsemble:
         :class:`DetachRocket`.  One of ``"max"`` (L∞, the aggregation
         used in the Detach-ROCKET paper), ``"norm"`` (L2), or ``"avg"``
         (L1).
-    backend : {'pytorch', 'cuda'}, default='pytorch'
-        Which MiniRocket implementation to use as the transformer.
-        ``'pytorch'`` uses :class:`PytorchMiniRocketMultivariate`
-        (requires PyTorch; runs on CPU or CUDA GPU), ``'cuda'`` uses
-        :class:`CudaMiniRocketMultivariate` (requires CuPy + a CUDA GPU).
+    model_type : {'minirocket', 'multirocket'}, default='minirocket'
+        Which ROCKET variant the ensemble members use.
+        ``'minirocket'`` uses the custom PyTorch/CuPy MiniRocket
+        backends; ``'multirocket'`` uses aeon's numba MultiRocket via
+        :class:`~detach_rocket.aeon_multirocket.AeonMultiRocket`
+        (CPU only, multithreaded via ``n_jobs``).
+    backend : {'pytorch', 'cuda', 'aeon'} or None, default=None
+        Which implementation backs the member transformers.  *None*
+        selects the default for ``model_type``: ``'pytorch'`` for
+        MiniRocket and ``'aeon'`` for MultiRocket.  ``'pytorch'`` uses
+        :class:`PytorchMiniRocketMultivariate` (requires PyTorch; runs
+        on CPU or CUDA GPU), ``'cuda'`` uses
+        :class:`CudaMiniRocketMultivariate` (requires CuPy + a CUDA
+        GPU); both are MiniRocket-only.  ``'aeon'`` (MultiRocket-only)
+        runs on CPU through aeon's numba kernels.  A PyTorch MultiRocket
+        backend is a planned follow-up; invalid combinations raise a
+        ``ValueError``.
+    n_jobs : int, default=1
+        Number of threads aeon's MultiRocket transform may use (``-1``
+        for all cores).  Only used when ``model_type='multirocket'``;
+        the MiniRocket backends ignore it.
     random_state : int or None, default=None
         Seed controlling the ensemble's randomness: it derives an
         independent seed for every member's transformer (channel
@@ -972,14 +1004,28 @@ class DetachEnsemble:
     >>> y_pred = ensemble.predict(X_test)
     >>> relevance = ensemble.estimate_channel_relevance()
 
+    >>> # MultiRocket members (aeon/numba, CPU):
+    >>> ensemble = DetachEnsemble(num_models=5, num_kernels=5_000, model_type="multirocket")
+
     References
     ----------
     .. [1] Solana, A., Fransén, E., & Uribarri, G. (2024).
            Classification of raw MEG/EEG data with detach-rocket ensemble.
            arXiv:2408.02760.
+    .. [2] Tan, C. W., Dempster, A., Bergmeir, C., & Webb, G. I. (2022).
+           MultiRocket: multiple pooling operators and transformations for
+           fast and effective time series classification.
+           Data Mining and Knowledge Discovery.
     """
 
-    _BACKENDS = ("cuda", "pytorch")
+    # Valid (model_type -> backends) combinations and the default backend for
+    # each model type.  Kept explicit so an unsupported pairing fails loudly
+    # instead of silently falling back to another implementation.
+    _VALID_BACKENDS = {"minirocket": ("pytorch", "cuda"), "multirocket": ("aeon",)}
+    _DEFAULT_BACKENDS = {"minirocket": "pytorch", "multirocket": "aeon"}
+    # A member transformer must keep at least one kernel after the internal
+    # rounding: 84 features for MiniRocket, 8 * 84 = 672 for MultiRocket.
+    _MIN_NUM_KERNELS = {"minirocket": 84, "multirocket": 672}
 
     def __init__(
         self,
@@ -991,14 +1037,39 @@ class DetachEnsemble:
         val_ratio=0.33,
         verbose=False,
         multiclass_type="max",
-        backend="pytorch",
+        model_type="minirocket",
+        backend=None,
+        n_jobs=1,
         random_state=None,
     ):
-        backend = backend.lower()
-        if backend not in self._BACKENDS:
-            raise ValueError(f"Unknown backend '{backend}'. Choose from {self._BACKENDS}.")
+        model_type = model_type.lower()
+        if model_type not in self._VALID_BACKENDS:
+            raise ValueError(f"Unknown model_type '{model_type}'. Choose from {tuple(self._VALID_BACKENDS)}.")
 
-        TransformerClass = self._get_transformer_class(backend)
+        backend = self._DEFAULT_BACKENDS[model_type] if backend is None else backend.lower()
+        if backend not in self._VALID_BACKENDS[model_type]:
+            if model_type == "multirocket" and backend in ("pytorch", "cuda"):
+                raise ValueError(
+                    f"backend='{backend}' is not available for model_type='multirocket': the PyTorch and CuPy "
+                    "backends are MiniRocket-only (a PyTorch MultiRocket backend is a planned follow-up). "
+                    "Use backend='aeon' (or backend=None)."
+                )
+            if model_type == "minirocket" and backend == "aeon":
+                raise ValueError(
+                    "backend='aeon' is not available for model_type='minirocket': aeon's MiniRocket does not "
+                    "expose the per-feature kernel map needed for channel relevance. "
+                    "Use backend='pytorch' or backend='cuda'."
+                )
+            raise ValueError(
+                f"Unknown backend '{backend}' for model_type='{model_type}'. "
+                f"Choose from {self._VALID_BACKENDS[model_type]}."
+            )
+
+        if num_kernels < self._MIN_NUM_KERNELS[model_type]:
+            raise ValueError(
+                f"num_kernels={num_kernels} is too small for model_type='{model_type}': the feature budget must "
+                f"cover at least one kernel-position, i.e. num_kernels >= {self._MIN_NUM_KERNELS[model_type]}."
+            )
 
         self.num_models = num_models
         self.num_kernels = num_kernels
@@ -1008,7 +1079,9 @@ class DetachEnsemble:
         self.val_ratio = val_ratio
         self.verbose = verbose
         self.multiclass_type = multiclass_type
+        self.model_type = model_type
         self.backend = backend
+        self.n_jobs = n_jobs
         self.random_state = random_state
 
         # One independent seed per member so the transformers differ from
@@ -1018,7 +1091,7 @@ class DetachEnsemble:
 
         self.derockets = []
         for m in range(num_models):
-            transformer = TransformerClass(num_features=num_kernels, random_state=int(member_seeds[m]))
+            transformer = self._make_transformer(int(member_seeds[m]))
             model = DetachRocket(
                 transformer=transformer,
                 trade_off=trade_off,
@@ -1032,9 +1105,31 @@ class DetachEnsemble:
         self.label_encoder = LabelEncoder()
         self.is_fitted_ = False
 
+    def _make_transformer(self, seed):
+        """Build one member transformer for the configured model type and backend.
+
+        Parameters
+        ----------
+        seed : int
+            Per-member random seed derived from ``random_state``.
+        """
+        if self.model_type == "multirocket":
+            from detach_rocket.aeon_multirocket import AeonMultiRocket
+
+            # num_kernels is a FEATURE budget (see the class docstring), as it
+            # is for MiniRocket.  MultiRocket yields 8 features per
+            # kernel-position (4 pooling operators x {raw series, first-order
+            # difference}), so aeon's kernel count is num_kernels // 8; aeon
+            # then floors it to a multiple of 84.
+            # Example: num_kernels=10_000 -> 1_250 aeon kernels -> 9_408 features.
+            return AeonMultiRocket(n_kernels=self.num_kernels // 8, random_state=seed, n_jobs=self.n_jobs)
+
+        TransformerClass = self._get_transformer_class(self.backend)
+        return TransformerClass(num_features=self.num_kernels, random_state=seed)
+
     @staticmethod
     def _get_transformer_class(backend: str):
-        """Import and return the transformer class for the given backend."""
+        """Import and return the MiniRocket transformer class for the given backend."""
         if backend == "cuda":
             from detach_rocket.cuda_minirocket import CudaMiniRocketMultivariate
 

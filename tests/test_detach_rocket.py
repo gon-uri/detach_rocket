@@ -5,6 +5,7 @@ import pytest
 from aeon.transformations.collection.convolution_based import MiniRocket, MultiRocket, Rocket
 from sklearn.model_selection import train_test_split
 
+from detach_rocket.aeon_multirocket import AeonMultiRocket
 from detach_rocket.detach_classes import DetachRocket
 from detach_rocket.pruner import (
     AeonRocketTransformerPruner,
@@ -284,9 +285,9 @@ def test_univariate_two_dimensional_input():
     assert np.array_equal(model.predict(X_2d), model.predict(X))
 
 
-@pytest.mark.parametrize("transformer_class", [MiniRocket, MultiRocket])
+@pytest.mark.parametrize("transformer_class", [MiniRocket, MultiRocket, AeonMultiRocket])
 def test_generic_fallback_transformers(transformer_class):
-    """MiniRocket and MultiRocket are pruned through the masking fallback."""
+    """MiniRocket, MultiRocket, and AeonMultiRocket use the masking fallback."""
     X, y = _make_data(N_CHANNELS)
     model = DetachRocket(
         transformer=transformer_class(n_kernels=N_KERNELS, random_state=42),
