@@ -669,7 +669,10 @@ class DetachRocket(BaseDetach):
         summary : dict
         """
         summary = super().get_summary()
+        # sktime names the attribute num_kernels, aeon n_kernels.
         retained_kernel_count = getattr(self.pruned_transformer_, "num_kernels", None)
+        if retained_kernel_count is None:
+            retained_kernel_count = getattr(self.pruned_transformer_, "n_kernels", None)
         summary["retained_kernel_count"] = None if retained_kernel_count is None else int(retained_kernel_count)
         return summary
 
