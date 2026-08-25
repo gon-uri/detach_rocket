@@ -261,4 +261,40 @@ Prereq: Stage 3 done (README's new numbers come from this stage's runs).
 
 ## Progress log (agents append here, newest first)
 
+- 2026-08-25: **Stage 1 done** (agent). `[aeon]` extra added (and to `all`);
+  `AeonRocketTransformerPruner` + `PrunedAeonRocketTransformer` in
+  `pruner.py`; aeon branch in `get_transformer_pruner` before the CUDA one;
+  `tests/test_aeon_transformers.py` (14 tests, 3 s); README Overview bullet.
+  Gates: `pytest` 22 → **36 passed**, `ruff check .` and
+  `ruff format --check .` clean. With aeon blocked in a subprocess (a
+  `sitecustomize` meta-path finder raising `ModuleNotFoundError`):
+  22 passed + 1 skipped, and `import detach_rocket.pruner` is clean.
+  Facts for later stages:
+  - aeon's `BaseCollectionTransformer.transform` is `@final` — override
+    `_transform(X, y=None)`, never `transform`.
+  - Unfitted-but-populated state needed by aeon's transform path:
+    `_tags = {"fit_is_empty": True}` (skips `_check_is_fitted`/`_check_shape`
+    **and** makes a stray `fit()` a no-op instead of regenerating random
+    kernels), `is_fitted = True`, `_n_jobs` (read by `Rocket._transform`), and
+    `kernels`. `metadata_` is `{}` from the base `__init__`, which makes
+    `_check_shape` a no-op; `fit_min_length_` is copied for introspection
+    parity only (transform does not read it).
+  - `normalise` is now copied from the parent transformer: with
+    `normalise=False` parents, defaulting it to True breaks the invariant.
+    sktime's `PrunedRocketTransformer` has that latent bug; it dies with the
+    class in Stage 2.
+  - `fit_transform()` on a pruned aeon transformer would `reset()` away
+    `kernels`; nothing in the library calls it (only `transform`), so it was
+    left alone.
+  - aeon `MiniRocket`/`MultiRocket` do not subclass aeon `Rocket` (generic
+    fallback, as planned), and aeon `Rocket` is unrelated to sktime's, so the
+    two specialized branches cannot collide.
+  - `get_summary()["retained_kernel_count"]` now falls back from sktime's
+    `num_kernels` to aeon's `n_kernels`; Stage 2 can drop the first lookup.
+  - pytest 9.1 `importorskip` skips on `ModuleNotFoundError` only, so a
+    *broken* aeon install errors loudly instead of silently skipping.
+  - Unrelated flake for Stage 5: `test_predict_proba_and_predict` builds a
+    `DetachEnsemble` without `random_state`, so its kernels come from OS
+    entropy; a degenerate draw occasionally emits a NaN-matmul
+    `RuntimeWarning` (test still passes).
 - 2026-08: Stage 0 done (coordinator): `detach_aeon` env, v0.1.0 tag+release.
