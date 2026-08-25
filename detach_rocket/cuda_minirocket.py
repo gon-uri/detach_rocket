@@ -16,6 +16,12 @@ Implements the same:
 Requirements:
   - cupy (CUDA)
   - numpy
+
+Acknowledgement:
+  The GPU strategy used here -- fusing convolution and PPV pooling inside
+  CuPy RawKernels instead of materializing convolution outputs -- builds on
+  the design pioneered for the original ROCKET transform by the CuROCKET
+  project (https://github.com/oleeven/CUROCKET, MIT license).
 """
 
 from __future__ import annotations
