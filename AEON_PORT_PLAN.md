@@ -261,6 +261,77 @@ Prereq: Stage 3 done (README's new numbers come from this stage's runs).
 
 ## Progress log (agents append here, newest first)
 
+- 2026-08-25: **Stage 3 done** (agent). README full pass, CI bumped, pyproject
+  classifiers checked. Gates: `pytest` **35 passed** (5.5 s), `ruff check .`
+  and `ruff format --check .` clean — docs-only changes, no test movement.
+  - README: Python badge →3.11; the Features "scikit-learn or sktime" line now
+    reads aeon + "any object exposing `transform(X)`"; Install drops
+    `[datasets]`, says aeon (base dep) supplies transformers *and* loaders, and
+    lists the real extras (`torch`, `cuda`, `examples`, `dev`, `all`); Quick
+    Start imports aeon's `Rocket` with `n_kernels=10_000`; a
+    `load_classification` snippet was added **before** the model code (the old
+    text used `X_train` with no indication of where it came from); Core Modules
+    drops `utils_datasets.py` and names all three pruners.
+  - **2D input, verified rather than assumed:** aeon's collection transformers
+    *do* accept 2D `(n_instances, n_timepoints)` — `_preprocess_collection`
+    reshapes it to `(n, 1, t)` and the features are bit-identical to passing 3D
+    (`np.allclose` on `fit_transform`, and on `fit(3D)` + `transform(2D)`). The
+    whole DetachRocket path was exercised both ways: same score, same
+    `retained_kernel_count` (153/153), `detach()` prediction parity, and a
+    `PrunedAeonRocketTransformer` either way. So the README says 2D works,
+    which is the *opposite* of the "sktime only" claim the task assumed.
+  - **numba/llvmlite advice re-verified and it changed meaning.** numba stopped
+    publishing macOS x86_64 wheels at **0.63.0** (llvmlite 0.46.0); the last
+    ones with an x86_64 mac wheel are numba 0.62.1 / llvmlite 0.45.1. aeon caps
+    `numba<0.64`, so a plain pip install on Intel/Rosetta now resolves to
+    0.63.1 — source-only there — and compiles LLVM. A wheels-only
+    cross-platform resolve (`--platform macosx_12_0_x86_64 --python-version
+    312`) lands on numba 0.62.1 + llvmlite 0.45.1 with numpy 2.3.5, i.e. what
+    `--prefer-binary` picks. **The tip still holds and is now strictly
+    necessary on that platform**, so it was kept and its explanation rewritten.
+    On arm64 both dry-runs resolve identically (0.63.1), as expected. The
+    conda fallback is now `conda install "numba>=0.58,<0.64"` — unbounded, it
+    would install a numba aeon rejects. The `nomkl` note is untouched.
+  - Migration: new "Migrating from 0.1.x" above the 0.0.x section, every row
+    checked against the `v0.1.0` tag rather than memory (`requires-python
+    >=3.10`, `numpy>=1.26.4,<2.5`, `PrunedRocketTransformer`/
+    `RocketTransformerPruner`, `datasets = [scipy, pyts]`, the darwin-x86_64
+    `numpy<2` torch marker, and `fetch_ucr_dataset` returning a Bunch with both
+    splits). It flags the **2D→3D change in what the loaders return**, which
+    the plan only noted for Stage 4 but which users hit too. Confirmed
+    empirically that a user-supplied **sktime** Rocket still fits, predicts and
+    `detach()`es correctly through `GenericPrunedTransformer` (decision A), so
+    the README promises that explicitly. The 0.0.x table's right column became
+    `0.1.0+` with `n_kernels`, so nobody copies a now-invalid `num_kernels`.
+  - Troubleshooting: the Intel-mac `numpy<2` torch paragraph is replaced by the
+    `@v0.1.0` install line (the old pin is unsatisfiable under a NumPy-2 base).
+  - **CI gotcha worth remembering:** `astral-sh/setup-uv` stopped publishing
+    floating major tags in v8, so `@v10` **404s** — it is pinned to the exact
+    `v10.0.1`, with a comment in the workflow saying why. `actions/checkout@v7`
+    and `actions/setup-python@v7` do exist as major tags. All three declare
+    `using: node24`, which is what silences the runner deprecation warning.
+    Both jobs moved 3.10 → 3.12. setup-uv v10's cache-poisoning default change
+    only affects `pull_request_target`/`workflow_run`/`release`, none of which
+    trigger this workflow.
+  - pyproject: added the `Programming Language :: Python :: 3.14` classifier —
+    the list stopped at 3.13 while `requires-python` is open-ended `>=3.11`,
+    and a wheels-only cp314 resolve succeeds (aeon 1.5.0, numba 0.63.1, numpy
+    2.3.5, sklearn 1.8.0). Resolver-verified, not runtime-tested; **Stage 5
+    could smoke-test 3.14** if it wants the claim exercised. Keywords are
+    clean (nothing sktime-flavoured). `requires-python` was left without an
+    upper bound on purpose — mirroring aeon's `<3.15` would duplicate a
+    constraint aeon already enforces and force a release each time aeon widens
+    it. Flagged as a maintainer call, not fixed unilaterally.
+  - **Stage 4 inherits:** the README results table (FordB 79.26% / 81.85% /
+    0.69% / 34.66s vs 0.47s, 10,000 kernels, line ~24) is still the 0.1.0
+    sktime run and must be re-synced from the new notebook execution. The
+    notebook links and descriptions in "Notebook Examples" were left as-is and
+    still read correctly. Note for the tsfresh notebook: `load_classification`
+    returns univariate X as 3D, whereas the old loaders gave 2D.
+  - Nothing in the README references the version number `0.2.0` except the new
+    migration section's heading text, which Stage 5's version bump should stay
+    consistent with.
+
 - 2026-08-25: **Stage 2 done** (agent). aeon is now a base dependency and
   sktime is gone from the code and the metadata. pyproject: base deps are
   `numpy>=2.0,<2.5`, `scikit-learn>=1.7.2,<1.9`, `aeon>=1.5,<2` (numba and
