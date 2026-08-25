@@ -1064,7 +1064,8 @@ class DetachEnsemble:
                     "(n_instances, 1, n_timepoints). With a single channel, ensemble "
                     "diversity comes only from bias sampling and channel relevance is "
                     "trivial — for pure univariate accuracy consider a single "
-                    "DetachRocket; the ensemble remains useful for label probabilities.",
+                    "DetachRocket; the ensemble remains useful for label probabilities "
+                    "and slightly reduced model variance.",
                     UserWarning,
                 )
             return X[:, np.newaxis, :]
