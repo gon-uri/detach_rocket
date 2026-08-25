@@ -11,7 +11,7 @@ version = "0.1.0"
 description = "Sequential Feature Detachment for Random Convolutional Kernel models."
 readme = "README.md"
 license = "BSD-3-Clause"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Gonzalo Uribarri" },
     { name = "Federico Barone" },
@@ -22,7 +22,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -31,38 +30,29 @@ classifiers = [
 
 # -- Runtime dependencies ---------------------------------------------------
 dependencies = [
-    # Support both NumPy 1.26+ and NumPy 2.x while staying within the tested
-    # compatibility range of the current time-series/scientific Python stack.
-    "numpy>=1.26.4,<2.5",
+    # NumPy 2 is required by aeon and is the range this package is tested on.
+    "numpy>=2.0,<2.5",
 
-    # Match sktime's supported scikit-learn range explicitly, instead of
-    # relying on pip to discover this transitive constraint during resolution.
-    "scikit-learn>=1.7.2,<1.8",
+    # Match aeon's supported scikit-learn range explicitly, instead of relying
+    # on pip to discover this transitive constraint during resolution.  The
+    # floor is this package's own (higher than aeon's 1.6).
+    "scikit-learn>=1.7.2,<1.9",
 
-    "sktime>=0.40.1",
-
-    # Needed by sktime's ROCKET transformers, not by this package directly.
-    # Keep the floor low so a conda-installed numba (see README
-    # Troubleshooting) satisfies it on platforms without recent wheels.
-    "numba>=0.58",
+    # ROCKET-family transformers and the UCR/UEA dataset loaders.  aeon also
+    # pulls in numba (which compiles the kernels) and scipy, so neither needs
+    # a pin here.
+    "aeon>=1.5,<2",
 ]
 
 # -- Optional dependency groups ---------------------------------------------
 [project.optional-dependencies]
-# DetachEnsemble with PyTorch backend (PytorchMiniRocketMultivariate)
-torch = [
-    "torch>=2.2.2",
-    # On macOS x86_64 (including Rosetta condas on Apple Silicon) the newest
-    # available torch wheel is 2.2.2, which was built against NumPy 1.x and
-    # breaks at runtime with NumPy >= 2 (torch<->numpy conversions fail).
-    "numpy<2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-]
+# DetachEnsemble with PyTorch backend (PytorchMiniRocketMultivariate).
+# torch 2.3 is the first release that tolerates NumPy 2, which the base
+# dependencies require; asking for it makes pip fail loudly on platforms that
+# only ship older wheels instead of installing a broken torch/numpy pair.
+torch = ["torch>=2.3"]
 # DetachEnsemble with CUDA backend (CudaMiniRocketMultivariate)
 cuda = ["cupy-cuda12x>=13.0"]
-# aeon ROCKET-family transformers (physical pruning for aeon's Rocket)
-aeon = ["aeon>=1.5,<2"]
-# Dataset download utilities (utils_datasets.py)
-datasets = ["scipy>=1.17.1", "pyts>=0.13.0"]
 # Jupyter notebook examples
 examples = ["matplotlib>=3.10.8", "ipykernel>=7.2.0"]
 # Development / testing
@@ -72,7 +62,7 @@ dev = [
 ]
 # Install everything
 all = [
-    "detach_rocket[torch,cuda,aeon,datasets,examples,dev]",
+    "detach_rocket[torch,cuda,examples,dev]",
 ]
 
 [project.urls]
@@ -97,7 +87,7 @@ filterwarnings = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120
 # Lint/format the library and tests only; notebooks are user-facing documents.
 extend-exclude = ["*.ipynb"]
