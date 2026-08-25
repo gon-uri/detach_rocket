@@ -8,9 +8,11 @@ directory; this file tracks what is covered and what remains open.
 - **`feature_detachment` (sfd.py)** — output shapes, monotonically decreasing
   schedule, irrelevant features pruned first, no-validation path returns `None`
   test scores (`test_feature_detachment.py`).
-- **`RocketTransformerPruner` (pruner.py)** — retained kernel count matches the
-  mask, output shape, exact numerical equivalence with the masked full
-  transform (`test_detach_rocket.py`).
+- **`AeonRocketTransformerPruner` (pruner.py)** — specialized pruner is
+  dispatched (never a silent fallback), retained kernel count matches the mask,
+  output shape, exact numerical equivalence with the masked full transform, and
+  the copied kernels survive `fit`/`fit_transform`/`reset`
+  (`test_detach_rocket.py`).
 - **Generic pruner fallback** — unsupported transformers get a masking wrapper
   instead of an error (`test_detach_rocket.py`).
 - **`DetachRocket`** — fit with trade-off selection and with fixed percentage,
