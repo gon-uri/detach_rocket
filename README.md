@@ -31,7 +31,7 @@ The library provides four main classes:
 
 - **`DetachRocket`** — End-to-end model: wraps any ROCKET-family transformer (Rocket, MiniRocket, MultiRocket), prunes it with SFD, and rebuilds a smaller transformer for fast inference. [aeon](https://www.aeon-toolkit.org/) ROCKET-family transformers are supported out of the box (aeon is a base dependency). Physical kernel rebuilding is currently implemented for aeon's `Rocket` and the CuPy MiniRocket backend; other transformers use an exact feature-masking fallback (identical predictions, without the inference speedup).
 
-- **`DetachEnsemble`** — Ensemble of independently randomized Detach-MiniRocket or Detach-MultiRocket models (`model_type="minirocket"` or `"multirocket"`). Designed for multivariate time series, especially high-dimensional data (e.g. MEG/EEG). Provides class probability estimation and channel relevance scores. MiniRocket runs on `backend="pytorch"` (CPU/GPU) or `backend="cuda"` (CuPy); MultiRocket runs on `backend="aeon"` (CPU, multithreaded numba).
+- **`DetachEnsemble`** — Ensemble of independently randomized Detach-MiniRocket or Detach-MultiRocket models (`model_type="minirocket"` or `"multirocket"`). Designed for multivariate time series, especially high-dimensional data (e.g. MEG/EEG). Provides class probability estimation and channel relevance scores. MiniRocket runs on `backend="pytorch"` (CPU/GPU), `backend="cuda"` (CuPy), or `backend="aeon"` (the fast CPU option, multithreaded numba); MultiRocket runs on `backend="aeon"`.
 
 - **`DetachMatrix`** — Applies SFD to any precomputed feature matrix. Use this when your features come from an external pipeline (tsfresh, catch22, or any other transformer).
 
@@ -44,7 +44,8 @@ For a detailed explanation of the methods please refer to the [Detach-ROCKET art
 - Multiclass classification support
 - Built-in PyTorch MiniRocket implementation (CPU and GPU)
 - CuPy/CUDA MiniRocket backend for maximum GPU throughput
-- Detach-ROCKET Ensemble for high-dimensional multivariate time series, with MiniRocket or MultiRocket members (MultiRocket via aeon's multithreaded numba implementation, CPU only for now)
+- Detach-ROCKET Ensemble for high-dimensional multivariate time series, with MiniRocket or MultiRocket members
+- aeon-backed ensemble members (`backend="aeon"`): multithreaded numba on CPU — the fastest CPU path for both MiniRocket and MultiRocket (GPU backends remain MiniRocket-only for now)
 - Channel relevance estimation and label probability for multivariate data
 - Physical kernel pruning for faster inference via `model.detach()`
 - Works with [aeon](https://www.aeon-toolkit.org/)'s ROCKET-family transformers out of the box, and with any object exposing `transform(X)` (scikit-learn transformers included) through an exact feature-masking fallback
@@ -172,6 +173,12 @@ ensemble = DetachEnsemble(
 )
 ```
 
+On CPU-only machines, `backend="aeon"` is also the fastest MiniRocket option: the numba transform is multithreaded, whereas the PyTorch backend on CPU is restricted to `n_jobs` torch threads (1 by default, to avoid OpenMP deadlocks on stacks with conflicting OpenMP runtimes):
+
+```python
+ensemble = DetachEnsemble(num_models=20, num_kernels=5_000, backend="aeon", n_jobs=-1)
+```
+
 > **`num_kernels` counts features, not kernels** (a historical name). For both model types it is the per-member *feature budget*: with MiniRocket, `num_kernels=10_000` → 9,996 features; with MultiRocket — which produces 8 features per kernel-position (4 pooling operators × {raw series, first-order difference}) — `num_kernels // 8` is passed to aeon as `n_kernels`, so `num_kernels=10_000` → 9,408 features. Switching `model_type` therefore keeps the per-member cost comparable. To match the MultiRocket paper's default scale (6,250 kernels ≈ 50k features), use `num_kernels=50_000`.
 
 <p align="center">
@@ -209,7 +216,7 @@ Detailed usage examples are available in the [examples folder](examples/):
 - `detach_rocket/pruner.py`: Transformer pruning — `AeonRocketTransformerPruner` physically rebuilds aeon's `Rocket`, `CudaMiniRocketTransformerPruner` does the same for the CuPy MiniRocket backend, and `GenericTransformerPruner` provides the exact feature-masking fallback for every other transformer.
 - `detach_rocket/pytorch_minirocket.py`: PyTorch MiniRocket implementation (CPU/GPU).
 - `detach_rocket/cuda_minirocket.py`: CuPy/CUDA MiniRocket implementation.
-- `detach_rocket/aeon_multirocket.py`: aeon MultiRocket subclass with the per-feature kernel map (`get_kernel_features`) that powers ensemble channel relevance.
+- `detach_rocket/aeon_minirocket.py` and `detach_rocket/aeon_multirocket.py`: aeon MiniRocket/MultiRocket subclasses with the per-feature kernel map (`get_kernel_features`) that powers ensemble channel relevance.
 
 ## Migrating from 0.0.x
 
@@ -226,7 +233,7 @@ Version 0.2.0 is a full rework of the library, with a cleaner scikit-learn-style
 | `utils_datasets.fetch_ucr_dataset(...)` returned both splits in one `Bunch`, univariate `X` as 2D | `from aeon.datasets import load_classification`; `load_classification("FordB", split="train")` returns `(X, y)` per split, univariate `X` as 3D `(n_instances, 1, n_timepoints)` — both shapes are accepted as model input |
 | Python ≥3.7 | Python ≥3.11, NumPy ≥2 (both required by aeon) |
 
-New since 0.0.x: `DetachEnsemble` with PyTorch and CuPy/CUDA MiniRocket backends plus aeon MultiRocket members (`model_type="multirocket"`), physical transformer pruning with `detach()` for lightweight deployment models, channel relevance estimation, label probabilities via weighted soft voting, and `random_state` for reproducibility.
+New since 0.0.x: `DetachEnsemble` with PyTorch, CuPy/CUDA, and aeon/numba MiniRocket backends plus aeon MultiRocket members (`model_type="multirocket"`), physical transformer pruning with `detach()` for lightweight deployment models, channel relevance estimation, label probabilities via weighted soft voting, and `random_state` for reproducibility.
 
 Transformers you supply yourself keep working regardless of their origin: sktime transformers, scikit-learn transformers, and anything else exposing `transform(X)` still fit and predict correctly through the feature-masking fallback. They simply do not get a physically rebuilt transformer, so `detach()` gives identical predictions without the inference speedup.
 
