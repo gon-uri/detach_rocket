@@ -1,6 +1,6 @@
 """detach_rocket."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from detach_rocket.detach_classes import (
     DetachEnsemble as DetachEnsemble,
