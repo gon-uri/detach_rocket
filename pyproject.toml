@@ -59,6 +59,8 @@ torch = [
 ]
 # DetachEnsemble with CUDA backend (CudaMiniRocketMultivariate)
 cuda = ["cupy-cuda12x>=13.0"]
+# aeon ROCKET-family transformers (physical pruning for aeon's Rocket)
+aeon = ["aeon>=1.5,<2"]
 # Dataset download utilities (utils_datasets.py)
 datasets = ["scipy>=1.17.1", "pyts>=0.13.0"]
 # Jupyter notebook examples
@@ -70,7 +72,7 @@ dev = [
 ]
 # Install everything
 all = [
-    "detach_rocket[torch,cuda,datasets,examples,dev]",
+    "detach_rocket[torch,cuda,aeon,datasets,examples,dev]",
 ]
 
 [project.urls]
