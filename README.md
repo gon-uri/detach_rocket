@@ -2,7 +2,7 @@
 
 <img align="right" src="logo/detach_logo.png" alt="Logo" width="150"/>
 
-![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-blue)
+![Python](https://img.shields.io/badge/Python-%E2%89%A53.11-blue)
 ![License](https://img.shields.io/badge/License-BSD--3--Clause-green)
 ![Install](https://img.shields.io/badge/install-from%20GitHub-orange)
 
@@ -47,7 +47,7 @@ For a detailed explanation of the methods please refer to the [Detach-ROCKET art
 - Detach-ROCKET Ensemble for high-dimensional multivariate time series
 - Channel relevance estimation and label probability for multivariate data
 - Physical kernel pruning for faster inference via `model.detach()`
-- Compatible with any scikit-learn or sktime transformer (not just ROCKET)
+- Works with [aeon](https://www.aeon-toolkit.org/)'s ROCKET-family transformers out of the box, and with any object exposing `transform(X)` (scikit-learn transformers included) through an exact feature-masking fallback
 
 ## Installation
 
@@ -56,6 +56,8 @@ Install directly from GitHub:
 ```bash
 pip install git+https://github.com/gon-uri/detach_rocket
 ```
+
+The base install pulls in [aeon](https://www.aeon-toolkit.org/), which provides both the ROCKET-family transformers and the UCR/UEA dataset loaders — no extra is needed for either. Requires Python ≥3.11 and NumPy ≥2.
 
 With optional dependencies:
 
@@ -66,12 +68,14 @@ pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket
 # DetachEnsemble with CuPy/CUDA backend (requires CUDA GPU)
 pip install "detach_rocket[cuda] @ git+https://github.com/gon-uri/detach_rocket"
 
-# Dataset download utilities
-pip install "detach_rocket[datasets] @ git+https://github.com/gon-uri/detach_rocket"
+# Dependencies for running the example notebooks
+pip install "detach_rocket[examples] @ git+https://github.com/gon-uri/detach_rocket"
 
 # Everything
 pip install "detach_rocket[all] @ git+https://github.com/gon-uri/detach_rocket"
 ```
+
+Available extras: `torch`, `cuda`, `examples`, `dev`, `all`.
 
 > **Note:** The `cuda` extra installs `cupy-cuda12x`. If your system uses a different CUDA version, see the [CuPy installation guide](https://docs.cupy.dev/en/stable/install.html).
 
@@ -87,12 +91,23 @@ pip install -e ".[dev]"
 
 The model follows the scikit-learn API: `fit`, `predict`, `score`.
 
+aeon ships the UCR/UEA archive loaders, so no extra download helper is needed to get data:
+
+```python
+from aeon.datasets import load_classification
+
+X_train, y_train = load_classification("FordB", split="train")
+X_test, y_test = load_classification("FordB", split="test")
+```
+
+Datasets are downloaded from [timeseriesclassification.com](https://timeseriesclassification.com) on first use and cached locally. `load_classification` returns `(X, y)` per split, with `X` already in the 3D form and `y` an array of string labels.
+
 ```python
 from detach_rocket import DetachRocket
-from sktime.transformations.panel.rocket import Rocket
+from aeon.transformations.collection.convolution_based import Rocket
 
 # Instantiate model
-rocket = Rocket(num_kernels=10_000)
+rocket = Rocket(n_kernels=10_000)
 detach_model = DetachRocket(transformer=rocket, trade_off=0.1)
 
 # Train (validation set required when set_percentage=None)
@@ -117,7 +132,7 @@ detach_model.fit(X_train, y_train)
 ```
 
 **Input shapes:**
-- Univariate: `(n_instances, 1, n_timepoints)` — with sktime transformers, 2D `(n_instances, n_timepoints)` also works
+- Univariate: `(n_instances, 1, n_timepoints)`. Plain 2D `(n_instances, n_timepoints)` also works — aeon's collection transformers treat it as a single-channel collection and reshape it internally, giving identical results
 - Multivariate: `(n_instances, n_channels, n_timepoints)`
 - The MiniRocket backends used by `DetachEnsemble` require the 3D form
 
@@ -178,18 +193,40 @@ Detailed usage examples are available in the [examples folder](examples/):
 - `detach_rocket/detach_classes.py`: Main model classes (`DetachRocket`, `DetachMatrix`, `DetachEnsemble`, `PrunedRocketModel`).
 - `detach_rocket/sfd.py`: Sequential Feature Detachment core logic (`feature_detachment`).
 - `detach_rocket/model_selection.py`: Model-size selection and final retraining utilities.
-- `detach_rocket/pruner.py`: Transformer pruning — physical rebuild for Rocket and CUDA MiniRocket, generic masking fallback for everything else.
+- `detach_rocket/pruner.py`: Transformer pruning — `AeonRocketTransformerPruner` physically rebuilds aeon's `Rocket`, `CudaMiniRocketTransformerPruner` does the same for the CuPy MiniRocket backend, and `GenericTransformerPruner` provides the exact feature-masking fallback for every other transformer.
 - `detach_rocket/pytorch_minirocket.py`: PyTorch MiniRocket implementation (CPU/GPU).
 - `detach_rocket/cuda_minirocket.py`: CuPy/CUDA MiniRocket implementation.
-- `detach_rocket/utils_datasets.py`: UCR/UEA dataset download helpers.
+
+## Migrating from 0.1.x
+
+Version 0.2.0 replaces [sktime](https://www.sktime.net/) with [aeon](https://www.aeon-toolkit.org/) as the base transformer and dataset dependency. The model classes, their parameters, and their behavior are unchanged — what changes is how you build the transformer you pass in and how you load data:
+
+| 0.1.x | 0.2.0 |
+|---|---|
+| `from sktime.transformations.panel.rocket import Rocket` | `from aeon.transformations.collection.convolution_based import Rocket` |
+| `Rocket(num_kernels=10_000)` | `Rocket(n_kernels=10_000)` — aeon renamed the argument |
+| `from detach_rocket.utils_datasets import fetch_ucr_dataset` (or `fetch_uea_dataset`) | `from aeon.datasets import load_classification` — one loader for both archives |
+| `fetch_ucr_dataset("FordB")` returned both splits in one `Bunch` | `load_classification("FordB", split="train")` returns `(X, y)` for a single split, so call it once per split |
+| Univariate `X` came back 2D `(n_instances, n_timepoints)` | Univariate `X` comes back 3D `(n_instances, 1, n_timepoints)` — both are accepted as model input |
+| `pip install "detach_rocket[datasets]"` | The `datasets` extra is gone — aeon's loaders come with the base install |
+| `PrunedRocketTransformer`, `RocketTransformerPruner` | `PrunedAeonRocketTransformer`, `AeonRocketTransformerPruner` |
+| Python ≥3.10, NumPy 1 or 2 | Python ≥3.11, NumPy ≥2 (both required by aeon) |
+
+Transformers you supply yourself keep working regardless of their origin: sktime transformers, scikit-learn transformers, and anything else exposing `transform(X)` still fit and predict correctly through the feature-masking fallback. They simply do not get a physically rebuilt transformer, so `detach()` gives identical predictions without the inference speedup.
+
+> **Intel Mac / x86_64 users needing the `[torch]` extra:** the newest macOS x86_64 torch wheel requires NumPy 1, which conflicts with the NumPy ≥2 floor aeon imposes. Stay on the last sktime-based release, which is tagged and supports NumPy 1 on that platform:
+>
+> ```bash
+> pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket@v0.1.0"
+> ```
 
 ## Migrating from 0.0.x
 
 Version 0.1.0 is a rewrite with a cleaner, scikit-learn-style API. The main breaking changes:
 
-| 0.0.x | 0.1.0 |
+| 0.0.x | 0.1.0+ |
 |---|---|
-| `DetachRocket(model_type="rocket", num_kernels=10000)` | `DetachRocket(transformer=Rocket(num_kernels=10_000))` — pass any transformer instance |
+| `DetachRocket(model_type="rocket", num_kernels=10000)` | `DetachRocket(transformer=Rocket(n_kernels=10_000))` — pass any transformer instance |
 | `fit(X, y)` with a silent internal train/val split | Explicit `fit(X, y, X_val=..., y_val=...)`, or `set_percentage=...` to skip validation |
 | `score(X, y)` returned a `(pruned_acc, full_acc)` tuple | `score(X, y)` returns a float; the unpruned baseline is `score_full(X, y)` |
 | Private attributes (`_feature_matrix`, `_classifier`, ...) | scikit-learn style public attributes (`feature_matrix_`, `classifier_`, ...) |
@@ -202,20 +239,26 @@ Two behavior fixes worth knowing: 0.0.x retrained the final classifier on the fe
 
 ## Troubleshooting
 
-**`llvmlite` fails to build during `pip install`.** This happens on platforms where the newest `numba` release has no pre-built wheel (e.g. Intel Macs, or x86_64/Rosetta condas on Apple Silicon), so pip tries to compile it from source. Tell pip to prefer wheels over newer source releases:
+**`llvmlite` fails to build during `pip install`.** `numba` (pulled in by aeon, which compiles the ROCKET kernels with it) stopped publishing macOS x86_64 wheels partway through the version range aeon accepts. On Intel Macs — and on x86_64/Rosetta condas running on Apple Silicon — pip therefore picks a `numba`/`llvmlite` pair that exists only as a source archive and tries to compile LLVM from scratch. Tell pip to prefer versions that ship a wheel over newer source-only releases:
 
 ```bash
 pip install --prefer-binary git+https://github.com/gon-uri/detach_rocket
 ```
 
+This resolves to the newest `numba` that still has an x86_64 macOS wheel, which is inside aeon's supported range, so nothing else is affected. Platforms with wheels for the newest `numba` (Linux, Windows, Apple Silicon) resolve identically with or without the flag.
+
 Alternatively, install `numba` from conda first and then install the package:
 
 ```bash
-conda install "numba>=0.58"
+conda install "numba>=0.58,<0.64"
 pip install git+https://github.com/gon-uri/detach_rocket
 ```
 
-**`RuntimeError: Numpy is not available` from torch (Intel Mac / Rosetta conda).** The newest torch wheel for macOS x86_64 is 2.2.2, which requires `numpy<2`. The `[torch]` extra pins this automatically on that platform; in a pre-existing environment, run `pip install "numpy<2"`.
+**`[torch]` extra on Intel Mac / x86_64 Rosetta conda.** The newest macOS x86_64 torch wheel requires `numpy<2`, which cannot coexist with the NumPy ≥2 floor that aeon imposes on this version. Install the last sktime-based release instead, which supports NumPy 1 on that platform:
+
+```bash
+pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket@v0.1.0"
+```
 
 **`Intel MKL WARNING` about SSE4.2/AVX** (conda installs MKL by default):
 
