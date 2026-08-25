@@ -1048,6 +1048,32 @@ class DetachEnsemble:
                 ) from e
             return PytorchMiniRocketMultivariate
 
+    @staticmethod
+    def _ensure_3d(X, warn=False):
+        """Return *X* as a 3D ``(n_instances, n_channels, n_timepoints)`` array.
+
+        2D input is interpreted as a univariate collection and reshaped
+        to a single channel; other dimensionalities are rejected.
+        """
+        X = np.asarray(X)
+        if X.ndim == 2:
+            if warn:
+                warnings.warn(
+                    "DetachEnsemble is designed primarily for multivariate time series; "
+                    "the 2D input was interpreted as univariate and reshaped to "
+                    "(n_instances, 1, n_timepoints). With a single channel, ensemble "
+                    "diversity comes only from bias sampling and channel relevance is "
+                    "trivial — for pure univariate accuracy consider a single "
+                    "DetachRocket; the ensemble remains useful for label probabilities.",
+                    UserWarning,
+                )
+            return X[:, np.newaxis, :]
+        if X.ndim != 3:
+            raise ValueError(
+                f"DetachEnsemble expects input of shape (n_instances, n_channels, n_timepoints); got {X.ndim}D."
+            )
+        return X
+
     def fit(self, X, y, X_val=None, y_val=None):
         """Fit all ensemble members on the training data.
 
@@ -1062,7 +1088,10 @@ class DetachEnsemble:
         Parameters
         ----------
         X : array-like of shape (n_instances, n_channels, n_timepoints)
-            Multivariate training time series.
+            Training time series.  2D univariate input
+            ``(n_instances, n_timepoints)`` is accepted and reshaped to a
+            single channel, with a warning — the ensemble is designed
+            primarily for multivariate data.
         y : array-like of shape (n_instances,)
             Training labels.
         X_val : array-like or None, default=None
@@ -1076,6 +1105,10 @@ class DetachEnsemble:
         """
         if X_val is not None and y_val is None:
             raise ValueError("y_val is required when X_val is provided.")
+
+        X = self._ensure_3d(X, warn=True)
+        if X_val is not None:
+            X_val = self._ensure_3d(X_val)
 
         if self.backend == "pytorch":
             first_model = self.derockets[0].transformer
@@ -1131,6 +1164,7 @@ class DetachEnsemble:
         if not self.is_fitted_:
             raise ValueError("Model not fitted. Call fit method first.")
 
+        X = self._ensure_3d(X)
         n_samples = X.shape[0]
         n_classes = len(self.label_encoder.classes_)
         weight_matrix = np.zeros((n_samples, n_classes, self.num_models))

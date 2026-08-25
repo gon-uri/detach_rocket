@@ -134,7 +134,7 @@ detach_model.fit(X_train, y_train)
 **Input shapes:**
 - Univariate: `(n_instances, 1, n_timepoints)`. Plain 2D `(n_instances, n_timepoints)` also works — aeon's collection transformers treat it as a single-channel collection and reshape it internally, giving identical results
 - Multivariate: `(n_instances, n_channels, n_timepoints)`
-- The MiniRocket backends used by `DetachEnsemble` require the 3D form
+- `DetachEnsemble` also accepts 2D univariate input: it reshapes it to a single channel and warns, since the ensemble is designed primarily for multivariate data (with one channel, member diversity comes only from bias sampling, but the ensemble still provides label probabilities)
 
 ## Quick Start — DetachEnsemble
 

@@ -63,6 +63,11 @@ class PytorchMiniRocketMultivariate(nn.Module):
             yield
 
     def fit(self, X, chunksize=128):
+        if X.ndim != 3:
+            raise ValueError(
+                f"PytorchMiniRocketMultivariate expects X of shape (n_instances, n_channels, n_timepoints); "
+                f"got {X.ndim}D. Reshape univariate data to (n_instances, 1, n_timepoints)."
+            )
         self._rng = np.random.default_rng(self.random_state)
         with self._manage_cpu_threads():
             self.c_in, self.seq_len = X.shape[1], X.shape[2]
@@ -308,6 +313,11 @@ class PytorchMiniRocketMultivariate(nn.Module):
         return biases
 
     def transform(self, o, chunksize=128):
+        if o.ndim != 3:
+            raise ValueError(
+                f"PytorchMiniRocketMultivariate expects input of shape (n_instances, n_channels, n_timepoints); "
+                f"got {o.ndim}D."
+            )
         with self._manage_cpu_threads():
             if isinstance(o, np.ndarray):
                 o = torch.from_numpy(o).float()

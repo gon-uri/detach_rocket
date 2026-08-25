@@ -97,6 +97,38 @@ def test_random_state_reproducibility(ensemble_data):
     assert np.allclose(e1.predict_proba(X), e2.predict_proba(X))
 
 
+def test_univariate_2d_input_warns_and_works(ensemble_data):
+    """2D input is reshaped to one channel with a warning, and the ensemble runs."""
+    X, y = ensemble_data
+    X_2d = X[:, 0, :]
+
+    ensemble = DetachEnsemble(num_models=2, num_kernels=168, set_percentage=50, backend="pytorch", random_state=1)
+    with pytest.warns(UserWarning, match="univariate"):
+        ensemble.fit(X_2d, y)
+
+    assert ensemble.num_channels == 1
+    pred_2d = ensemble.predict(X_2d)
+    pred_3d = ensemble.predict(X_2d[:, None, :])
+    assert np.array_equal(pred_2d, pred_3d)
+    assert np.allclose(ensemble.predict_proba(X_2d).sum(axis=1), 1.0)
+
+    relevance = ensemble.estimate_channel_relevance()
+    assert relevance.shape == (1,)
+    assert np.isclose(relevance.sum(), 1.0)
+
+
+def test_invalid_input_dimensions_raise(ensemble_data):
+    """Non-2D/3D ensemble input and 2D backend input fail with clear errors."""
+    X, y = ensemble_data
+
+    ensemble = DetachEnsemble(num_models=1, num_kernels=84, set_percentage=50)
+    with pytest.raises(ValueError, match="got 1D"):
+        ensemble.fit(X[:, 0, 0], y)
+
+    with pytest.raises(ValueError, match="got 2D"):
+        PytorchMiniRocketMultivariate(num_features=84).fit(X[:, 0, :])
+
+
 def test_get_kernel_features_bias_order():
     """Bias values returned per feature must match the feature ordering."""
     rng = np.random.default_rng(1)
