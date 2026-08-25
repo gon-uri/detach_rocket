@@ -261,6 +261,67 @@ Prereq: Stage 3 done (README's new numbers come from this stage's runs).
 
 ## Progress log (agents append here, newest first)
 
+- 2026-08-25: **Stage 2 done** (agent). aeon is now a base dependency and
+  sktime is gone from the code and the metadata. pyproject: base deps are
+  `numpy>=2.0,<2.5`, `scikit-learn>=1.7.2,<1.9`, `aeon>=1.5,<2` (numba and
+  scipy arrive with aeon); `requires-python = ">=3.11"`; 3.10 classifier and
+  the `[aeon]`/`[datasets]` extras removed; `[torch]` is now just
+  `torch>=2.3` (the darwin-x86_64 `numpy<2` marker is unsatisfiable under a
+  NumPy-2 base); `[tool.ruff] target-version` bumped to `py311` to match the
+  Python floor. `pruner.py`: sktime import, `PrunedRocketTransformer` and
+  `RocketTransformerPruner` deleted; `PrunedAeonRocketTransformer` is a plain
+  top-level class again (lazy factory, class cache and module `__getattr__`
+  removed); only the CUDA branch keeps its `try/except ImportError`.
+  `utils_datasets.py` deleted. `detach_classes.py` docstrings point at aeon.
+  Gates: `pytest` 36 → **35 passed** (4.8 s), `ruff check .` and
+  `ruff format --check .` clean. With sktime blocked in a subprocess (same
+  `sitecustomize` `ModuleNotFoundError` finder as Stage 1): `import
+  detach_rocket` clean with **no `sktime` entry in `sys.modules`**, and the
+  full suite still 35 passed / 0 skipped.
+  - Test accounting: `tests/test_aeon_transformers.py` (14) was merged into
+    `tests/test_detach_rocket.py` (6 → 19) and deleted — with aeon the only
+    backend, a separate module and its `importorskip("aeon")` guard no longer
+    made sense, and this restores both invariant guards to the file the plan
+    names them in. Dropped as duplicates: `test_rocket_pruner` (subsumed by
+    `test_pruned_transformer_is_specialized` plus the two invariant tests) and
+    the old single-variate `test_model_level_pruned_path_equivalence` (the
+    surviving one is parametrized univariate + multivariate). Added:
+    `test_pruned_transformer_survives_refitting_calls`. Net 20 → 19; the other
+    16 tests are untouched and still pass. The dead
+    `pytest.importorskip("numba")` in the old fixture is gone (importing aeon
+    already needs numba). `N_KERNELS` is 512 suite-wide (the plan's fixture
+    size) rather than Stage 1's 256.
+  - `fit_transform` safeguard: `PrunedAeonRocketTransformer.reset()` is
+    overridden to always add `"kernels"` to aeon's own `reset(keep=...)` list.
+    `fit`/`transform`/`fit_transform` are all `@final`, but `reset` is not, and
+    it is the single place the damage happened. Verified in aeon 1.5.0:
+    `_fit_transform` skips `_fit` when `fit_is_empty` is set, so the *only*
+    hazard was the unconditional `reset()` at the top of `fit_transform` —
+    which used to delete `kernels` and leave the instance permanently broken
+    (`AttributeError` on every later `transform`, not just the one call).
+    With the override, `fit_transform(X)` now returns exactly `transform(X)`,
+    and `fit()` / `reset()` are harmless no-ops. Covered by
+    `test_pruned_transformer_survives_refitting_calls`.
+  - `get_summary()["retained_kernel_count"]` keeps its two-step lookup, but for
+    a new reason: `num_kernels` is still needed by the **CUDA** pruned
+    transformer, then `n_kernels` for aeon, then `None`. The generic wrapper
+    yields `None` (it exposes `num_kernels=None`); both the aeon int and the
+    generic `None` are now asserted by tests.
+  - Naming kept as-is: `PrunedAeonRocketTransformer` /
+    `AeonRocketTransformerPruner` (explicitly aeon's Rocket, vs. the CUDA and
+    generic pruners). Stage 3 docs should use these names.
+  - **Stage 3 must bump CI's Python**: `.github/workflows/ci.yml` pins
+    `python-version: "3.10"` in both jobs, and `uv pip install -e ".[dev]"`
+    now fails that floor. Nothing else in CI references a removed extra.
+  - Also for Stage 3's README pass: the Core Modules list still has
+    `detach_rocket/utils_datasets.py`, and the Install section still offers
+    `[aeon]`/`[datasets]`. Stage 4: all three notebooks still import sktime's
+    Rocket and/or `fetch_ucr_dataset`/`fetch_uea_dataset`.
+  - Minor, for Stage 5 to decide: `detach_rocket/_warnings.py` imports
+    `scipy.linalg` directly while scipy is only a transitive dependency (via
+    aeon `>=1.9,<1.18`, and sklearn). It was equally transitive before this
+    stage (via sktime), so nothing regressed; an explicit scipy pin would just
+    make the direct use honest.
 - 2026-08-25: **Stage 1 done** (agent). `[aeon]` extra added (and to `all`);
   `AeonRocketTransformerPruner` + `PrunedAeonRocketTransformer` in
   `pruner.py`; aeon branch in `get_transformer_pruner` before the CUDA one;
