@@ -216,7 +216,7 @@ New since 0.0.x: `DetachEnsemble` with PyTorch and CuPy/CUDA MiniRocket backends
 
 Transformers you supply yourself keep working regardless of their origin: sktime transformers, scikit-learn transformers, and anything else exposing `transform(X)` still fit and predict correctly through the feature-masking fallback. They simply do not get a physically rebuilt transformer, so `detach()` gives identical predictions without the inference speedup.
 
-> **Intel Mac / x86_64 users needing the `[torch]` extra:** the newest macOS x86_64 torch wheel requires NumPy 1, which conflicts with the NumPy ≥2 floor aeon imposes. Use the transitional release `v0.1.0` (the same API as 0.2.0, built on sktime, supporting NumPy 1 on that platform):
+> **Intel Mac / x86_64 users needing the `[torch]` extra:** the newest macOS x86_64 torch wheel requires NumPy 1, which conflicts with the NumPy ≥2 floor aeon imposes. A compatibility build with the same API is available for that platform:
 >
 > ```bash
 > pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket@v0.1.0"
@@ -241,7 +241,7 @@ conda install "numba>=0.58,<0.64"
 pip install git+https://github.com/gon-uri/detach_rocket
 ```
 
-**`[torch]` extra on Intel Mac / x86_64 Rosetta conda.** The newest macOS x86_64 torch wheel requires `numpy<2`, which cannot coexist with the NumPy ≥2 floor that aeon imposes on this version. Install the last sktime-based release instead, which supports NumPy 1 on that platform:
+**`[torch]` extra on Intel Mac / x86_64 Rosetta conda.** The newest macOS x86_64 torch wheel requires `numpy<2`, which cannot coexist with the NumPy ≥2 floor that aeon imposes on this version. A compatibility build with the same API, supporting NumPy 1 on that platform, is available:
 
 ```bash
 pip install "detach_rocket[torch] @ git+https://github.com/gon-uri/detach_rocket@v0.1.0"
